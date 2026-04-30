@@ -14,6 +14,7 @@ export const envSchema = z.object({
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
+const phase1RegionCodeSchema = z.string().regex(/^[A-Z]{2,4}$/);
 
 export function loadEnv(input: Record<string, string | undefined> = process.env): AppEnv {
   const parsed = envSchema.safeParse(input);
@@ -31,4 +32,9 @@ export function getEnv(): AppEnv {
     cachedEnv = loadEnv();
   }
   return cachedEnv;
+}
+
+export function getPhase1RegionCode(input: Record<string, string | undefined> = process.env): string {
+  const raw = input.PHASE1_REGION_CODE ?? "NE";
+  return phase1RegionCodeSchema.parse(raw);
 }
