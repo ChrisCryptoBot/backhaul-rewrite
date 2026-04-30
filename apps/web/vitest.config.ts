@@ -9,6 +9,11 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"]
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    environmentMatchGlobs: [
+      ["tests/components/**/*.test.tsx", "jsdom"],
+      ["tests/clerk-fallback.test.tsx", "jsdom"]
+    ],
+    setupFiles: ["tests/setup-dom.ts"]
   }
 });
