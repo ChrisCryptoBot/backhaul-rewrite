@@ -1,6 +1,6 @@
 import type { AccessContext } from "./rbac";
 import { prisma } from "./db";
-import { getEnv } from "./env";
+import { getPhase1RegionCode } from "./env";
 import { PolicyViolationError } from "./policy-error";
 
 let cachedPhase1RegionId: string | null = null;
@@ -10,7 +10,7 @@ export async function resolvePhase1RegionId(): Promise<string> {
     return cachedPhase1RegionId;
   }
 
-  const { PHASE1_REGION_CODE } = getEnv();
+  const PHASE1_REGION_CODE = getPhase1RegionCode();
   const region = await prisma.region.findUnique({
     where: { code: PHASE1_REGION_CODE },
     select: { id: true }
