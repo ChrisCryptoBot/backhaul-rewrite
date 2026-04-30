@@ -1,11 +1,19 @@
 {
-  "dependencies": {
-    "@anthropic-ai/claude-code": "^0.2.29",
-    "open": "^10.1.0",
-    "uuid": "^11.1.0"
+  "name": "backhaul-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace apps/web",
+    "dev": "npm run dev --workspace apps/web",
+    "lint": "npm run lint --workspace apps/web",
+    "test": "npm run test --workspace apps/web",
+    "typecheck": "npm run typecheck --workspace apps/web"
   },
+  "dependencies": {},
   "devDependencies": {
-    "@types/node": "^22.13.8",
-    "@types/uuid": "^10.0.0"
+    "@types/node": "^22.13.8"
   }
 }
