@@ -45,27 +45,13 @@ export const boardColumnSpecs: BoardColumnSpec[] = [
 ];
 
 /**
- * MVP board slice: high-use, currently backed by modeled/joinable data.
+ * MVP board slice: exactly the columns currently rendered in the read-only table.
  */
 export const boardMvpColumnKeys = [
-  "dropLots",
   "ref3pl",
   "pickupDeliveryStatus",
-  "routeId",
-  "loadId",
-  "pickupNumber",
   "shipperName",
-  "pickupCityState",
-  "pickupWindow",
   "receiverName",
-  "deliveryCityState",
-  "deliveryDateWindow",
   "lineHaulRate",
-  "loadedBillableMiles",
-  "pickupDeadheadMiles",
-  "deliveryDeadheadMiles",
-  "totalMiles",
-  "negotiableMiles",
-  "loadedRpm",
-  "negotiationFloorRpm"
+  "loadedBillableMiles"
 ] as const;

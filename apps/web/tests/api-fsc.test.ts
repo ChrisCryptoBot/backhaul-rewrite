@@ -5,6 +5,7 @@ const auth = vi.fn();
 const requireRegionAccess = vi.fn();
 const runInRegionScope = vi.fn();
 const upsertFscIndex = vi.fn();
+const isWriteBypassed = vi.fn();
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth
@@ -22,9 +23,14 @@ vi.mock("@/server/fsc", () => ({
   upsertFscIndex
 }));
 
+vi.mock("@/lib/auth-mode", () => ({
+  isWriteBypassed
+}));
+
 describe("POST /api/fsc", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isWriteBypassed.mockReturnValue(false);
     upsertFscIndex.mockResolvedValue(undefined);
     runInRegionScope.mockImplementation(async (_regionId: string, fn: () => Promise<unknown>) => fn());
   });
@@ -48,6 +54,25 @@ describe("POST /api/fsc", () => {
     );
     expect(response.status).toBe(400);
   }, 10000);
+
+  test("returns 401 for unauthenticated requests", async () => {
+    auth.mockResolvedValue({ userId: null });
+    const { POST } = await import("@/app/api/fsc/route");
+    const response = await POST(
+      new Request("http://localhost/api/fsc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          regionId: "region-1",
+          weekIso: "2026-W18",
+          value: "0.42",
+          reason: "weekly fsc update",
+          source: "manual-override"
+        })
+      })
+    );
+    expect(response.status).toBe(401);
+  });
 
   test("rejects invalid source values", async () => {
     auth.mockResolvedValue({ userId: "user-1" });
@@ -87,6 +112,7 @@ describe("POST /api/fsc", () => {
       })
     );
     expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: "Forbidden" });
   });
 
   test("returns 500 when region access lookup fails unexpectedly", async () => {
@@ -150,6 +176,7 @@ describe("POST /api/fsc", () => {
       })
     );
     expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: "Forbidden" });
   });
 
   test("returns 500 for unexpected server errors", async () => {
@@ -200,5 +227,25 @@ describe("POST /api/fsc", () => {
     );
 
     expect(response.status).toBe(expectedStatus);
+  });
+
+  test("allows unauthenticated write only when explicit write bypass is enabled", async () => {
+    isWriteBypassed.mockReturnValue(true);
+    auth.mockResolvedValue({ userId: null });
+    const { POST } = await import("@/app/api/fsc/route");
+    const response = await POST(
+      new Request("http://localhost/api/fsc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          regionId: "region-1",
+          weekIso: "2026-W18",
+          value: "0.42",
+          reason: "weekly fsc update",
+          source: "manual-override"
+        })
+      })
+    );
+    expect(response.status).toBe(201);
   });
 });

@@ -6,7 +6,8 @@ import { upsertFscIndex } from "@/server/fsc";
 import { mapWireToDbFscSource, parseWireFscSource } from "@/lib/fsc-source";
 import { requireRegionAccess } from "@/lib/access";
 import { runInRegionScope } from "@/lib/db";
-import { PolicyViolationError } from "@/lib/policy-error";
+import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
+import { isWriteBypassed } from "@/lib/auth-mode";
 const fscPayloadSchema = z.object({
   regionId: z.string().min(1),
   weekIso: z.string().regex(/^\d{4}-W\d{2}$/),
@@ -24,15 +25,19 @@ const fscPayloadSchema = z.object({
 export async function POST(request: Request) {
   try {
     const { userId } = await auth();
-    if (!userId) {
+    const bypassWrites = isWriteBypassed();
+    if (!bypassWrites && !userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const actorUserId = userId ?? "dev-bypass-user";
 
     const payload = fscPayloadSchema.parse(await request.json());
     const wireSource = parseWireFscSource(payload.source);
     const source = mapWireToDbFscSource(wireSource);
 
-    const access = await requireRegionAccess(userId, payload.regionId);
+    const access = bypassWrites
+      ? { userId: "dev-bypass-user", regionId: payload.regionId, role: "ADMIN" as const }
+      : await requireRegionAccess(actorUserId, payload.regionId);
 
     await runInRegionScope(payload.regionId, async (tx) =>
       upsertFscIndex({
@@ -52,7 +57,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid request payload", details: error.issues }, { status: 400 });
     }
     if (error instanceof PolicyViolationError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
+      return NextResponse.json({ error: POLICY_FORBIDDEN_MESSAGE }, { status: 403 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

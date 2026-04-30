@@ -3,13 +3,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRegionAccess } from "@/lib/access";
 import { resolvePhase1RegionId } from "@/lib/scope";
-import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
-import { getBoardResponse } from "@/server/board";
 import { isAuthBypassed } from "@/lib/auth-mode";
-import { buildFallbackBoard } from "@/lib/board-fallback";
+import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
+import { getRateConfirmationActivity } from "@/server/rate-confirmation-activity";
 import { isIsoDay, todayIsoInTimeZone } from "@/lib/board-date";
 
-const boardQuerySchema = z.object({
+const schema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 });
 
@@ -21,18 +20,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const actorUserId = userId ?? "dev-bypass-user";
+    const dateParam = new URL(request.url).searchParams.get("date");
+    const date = bypassAuth ? (isIsoDay(dateParam) ? dateParam : todayIsoInTimeZone()) : schema.parse({ date: dateParam }).date;
 
-    const { searchParams } = new URL(request.url);
-    const requestedDate = searchParams.get("date");
-    const date = bypassAuth
-      ? (isIsoDay(requestedDate) ? requestedDate : todayIsoInTimeZone())
-      : boardQuerySchema.parse({ date: requestedDate }).date;
-
-    let phase1RegionId = "dev-region";
+    let regionId = "dev-region";
     try {
-      phase1RegionId = await resolvePhase1RegionId();
+      regionId = await resolvePhase1RegionId();
       if (!bypassAuth) {
-        await requireRegionAccess(actorUserId, phase1RegionId);
+        await requireRegionAccess(actorUserId, regionId);
       }
     } catch (error) {
       if (!bypassAuth) {
@@ -40,20 +35,8 @@ export async function GET(request: Request) {
       }
     }
 
-    let board;
-    try {
-      board = await getBoardResponse({
-        regionId: phase1RegionId,
-        date
-      });
-    } catch (error) {
-      if (!bypassAuth) {
-        throw error;
-      }
-      board = buildFallbackBoard({ regionId: phase1RegionId, date });
-    }
-
-    return NextResponse.json(board, { status: 200 });
+    const payload = await getRateConfirmationActivity({ regionId, date });
+    return NextResponse.json(payload, { status: 200 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid query params", details: error.issues }, { status: 400 });

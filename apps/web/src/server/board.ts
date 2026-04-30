@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import type { BoardLoadRow, BoardResponse, BoardSection } from "@/lib/board-types";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
+import { boardDayRange, PHASE1_BOARD_TIMEZONE } from "@/lib/board-date";
 
 interface DropLotBoardRow {
   id: string;
@@ -39,47 +40,6 @@ interface BoardLoadDbRow {
   negotiableMiles: Prisma.Decimal | null;
   loadedRpm: Prisma.Decimal | null;
   negotiationFloorRpm: Prisma.Decimal | null;
-}
-
-const PHASE1_BOARD_TIMEZONE = "America/New_York";
-
-function getTimeZoneOffsetMs(atUtc: Date, timeZone: string): number {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  });
-  const parts = formatter.formatToParts(atUtc);
-  const year = parseInt(parts.find((part) => part.type === "year")?.value ?? "0", 10);
-  const month = parseInt(parts.find((part) => part.type === "month")?.value ?? "0", 10);
-  const day = parseInt(parts.find((part) => part.type === "day")?.value ?? "0", 10);
-  const hour = parseInt(parts.find((part) => part.type === "hour")?.value ?? "0", 10);
-  const minute = parseInt(parts.find((part) => part.type === "minute")?.value ?? "0", 10);
-  const second = parseInt(parts.find((part) => part.type === "second")?.value ?? "0", 10);
-  const asUtcTimestamp = Date.UTC(year, month - 1, day, hour, minute, second);
-  return asUtcTimestamp - atUtc.getTime();
-}
-
-function zonedMidnightToUtc(isoDay: string, timeZone: string): Date {
-  const [year, month, day] = isoDay.split("-").map(Number);
-  const utcGuess = Date.UTC(year, month - 1, day, 0, 0, 0);
-  const guessDate = new Date(utcGuess);
-  const offset = getTimeZoneOffsetMs(guessDate, timeZone);
-  return new Date(utcGuess - offset);
-}
-
-function boardDayRange(isoDay: string, timeZone: string): { dayStart: Date; dayEnd: Date } {
-  const dayStart = zonedMidnightToUtc(isoDay, timeZone);
-  const nextDayUtc = new Date(`${isoDay}T00:00:00.000Z`);
-  nextDayUtc.setUTCDate(nextDayUtc.getUTCDate() + 1);
-  const nextIsoDay = nextDayUtc.toISOString().slice(0, 10);
-  const dayEnd = zonedMidnightToUtc(nextIsoDay, timeZone);
-  return { dayStart, dayEnd };
 }
 
 function cityState(city: string | null, state: string | null): string | null {
