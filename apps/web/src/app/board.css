@@ -1402,7 +1402,8 @@
 .db-trend-popup-week {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--db-fg-dim);
+  color: var(--db-fg);
+  font-weight: 600;
   margin-bottom: 6px;
 }
 
