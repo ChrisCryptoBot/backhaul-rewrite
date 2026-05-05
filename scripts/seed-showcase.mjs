@@ -34,6 +34,11 @@ async function main() {
       create: { code: "NE", name: "Northeast" }
     });
 
+    // Remove stale weekly aggregates so showcase weeks remain deterministic.
+    await tx.weekSnapshot.deleteMany({
+      where: { regionId: region.id }
+    });
+
     const user = await tx.user.upsert({
       where: { id: "showcase-user" },
       update: {
@@ -519,14 +524,74 @@ async function main() {
       });
     }
 
+    // Weekly KPI showcase baselines sourced from the presentation pack.
+    // We anchor them relative to "this week" so demos remain current.
     const snapshotSeeds = [
-      { week: weekIsoFromDate(addWeeks(bookingDate, 0)), loads: 47, rev: "58420", empty: "0.0580", floor: "4.52" },
-      { week: weekIsoFromDate(addWeeks(bookingDate, -1)), loads: 41, rev: "54240", empty: "0.0670", floor: "4.48" },
-      { week: weekIsoFromDate(addWeeks(bookingDate, -2)), loads: 39, rev: "51080", empty: "0.0710", floor: "4.44" },
-      { week: weekIsoFromDate(addWeeks(bookingDate, -3)), loads: 36, rev: "48200", empty: "0.0740", floor: "4.41" }
+      {
+        week: weekIsoFromDate(addWeeks(bookingDate, -1)), // 4/27-5/1
+        loads: 18,
+        lineHaulRevenue: "16705.00",
+        loadedMiles: "6377.0",
+        pickupDeadhead: "672.5",
+        deliveryDeadhead: "897.0",
+        emptyMilePct: "0.1980",
+        negFloorRpm: "2.62",
+        totalAllInRevenue: "16705.00",
+        fscAmount: "0.00"
+      },
+      {
+        week: weekIsoFromDate(addWeeks(bookingDate, -2)), // 4/20-4/24
+        loads: 16,
+        lineHaulRevenue: "14014.00",
+        loadedMiles: "5387.0",
+        pickupDeadhead: "544.0",
+        deliveryDeadhead: "729.0",
+        emptyMilePct: "0.1910",
+        negFloorRpm: "2.36",
+        totalAllInRevenue: "18791.50",
+        fscAmount: "4777.50"
+      },
+      {
+        week: weekIsoFromDate(addWeeks(bookingDate, -3)), // 4/13-4/17
+        loads: 18,
+        lineHaulRevenue: "18375.00",
+        loadedMiles: "6695.0",
+        pickupDeadhead: "913.0",
+        deliveryDeadhead: "1191.4",
+        emptyMilePct: "0.2390",
+        negFloorRpm: "2.74",
+        totalAllInRevenue: "18375.00",
+        fscAmount: "0.00"
+      },
+      {
+        week: weekIsoFromDate(addWeeks(bookingDate, -4)), // 4/6-4/10
+        loads: 24,
+        lineHaulRevenue: "12960.00",
+        loadedMiles: "6070.3",
+        pickupDeadhead: "564.8",
+        deliveryDeadhead: "438.3",
+        emptyMilePct: "0.1660",
+        negFloorRpm: "2.56",
+        totalAllInRevenue: "12960.00",
+        fscAmount: "0.00"
+      },
+      {
+        week: weekIsoFromDate(addWeeks(bookingDate, -5)), // 3/30-4/3
+        loads: 20,
+        lineHaulRevenue: "12200.00",
+        loadedMiles: "4516.0",
+        pickupDeadhead: "599.5",
+        deliveryDeadhead: "384.5",
+        emptyMilePct: "0.2750",
+        negFloorRpm: "2.38",
+        totalAllInRevenue: "12200.00",
+        fscAmount: "0.00"
+      }
     ];
 
     for (const snap of snapshotSeeds) {
+      const totalEmptyMiles = Number(snap.pickupDeadhead) + Number(snap.deliveryDeadhead);
+      const totalTripMiles = Number(snap.loadedMiles) + totalEmptyMiles;
       await tx.weekSnapshot.upsert({
         where: {
           regionId_weekIso: {
@@ -536,28 +601,31 @@ async function main() {
         },
         update: {
           loadCount: snap.loads,
-          lineHaulRevenue: snap.rev,
-          totalLoadedMiles: "12800",
-          totalPickupDeadhead: "670",
-          totalDeliveryDeadhead: "630",
-          totalEmptyMiles: "1300",
-          totalTripMiles: "14100",
-          emptyMilePct: snap.empty,
-          negFloorRpm: snap.floor
+          lineHaulRevenue: snap.lineHaulRevenue,
+          fuelSurchargeAmount: snap.fscAmount,
+          totalAllInRevenue: snap.totalAllInRevenue,
+          totalLoadedMiles: snap.loadedMiles,
+          totalPickupDeadhead: snap.pickupDeadhead,
+          totalDeliveryDeadhead: snap.deliveryDeadhead,
+          totalEmptyMiles: totalEmptyMiles.toFixed(1),
+          totalTripMiles: totalTripMiles.toFixed(1),
+          emptyMilePct: snap.emptyMilePct,
+          negFloorRpm: snap.negFloorRpm
         },
         create: {
           regionId: region.id,
           weekIso: snap.week,
           loadCount: snap.loads,
-          lineHaulRevenue: snap.rev,
-          fuelSurchargeAmount: "7400",
-          totalLoadedMiles: "12800",
-          totalPickupDeadhead: "670",
-          totalDeliveryDeadhead: "630",
-          totalEmptyMiles: "1300",
-          totalTripMiles: "14100",
-          emptyMilePct: snap.empty,
-          negFloorRpm: snap.floor
+          lineHaulRevenue: snap.lineHaulRevenue,
+          fuelSurchargeAmount: snap.fscAmount,
+          totalAllInRevenue: snap.totalAllInRevenue,
+          totalLoadedMiles: snap.loadedMiles,
+          totalPickupDeadhead: snap.pickupDeadhead,
+          totalDeliveryDeadhead: snap.deliveryDeadhead,
+          totalEmptyMiles: totalEmptyMiles.toFixed(1),
+          totalTripMiles: totalTripMiles.toFixed(1),
+          emptyMilePct: snap.emptyMilePct,
+          negFloorRpm: snap.negFloorRpm
         }
       });
     }
@@ -595,7 +663,7 @@ async function main() {
         }
       });
     }
-  });
+  }, { maxWait: 20000, timeout: 120000 });
 
   console.log("Showcase seed complete.");
 }
