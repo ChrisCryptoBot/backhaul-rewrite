@@ -10,6 +10,11 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Demo mode: bypass edge auth checks so API routes
+  // can be exercised without an active Clerk session.
+  if (process.env.BYPASS_AUTH === "true") {
+    return;
+  }
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
