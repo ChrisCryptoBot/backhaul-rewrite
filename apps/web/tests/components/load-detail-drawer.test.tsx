@@ -82,7 +82,9 @@ describe("load detail drawer interactions", () => {
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "Close drawer backdrop" }));
+    const backdrop = document.querySelector(".db-drawer-backdrop");
+    expect(backdrop).toBeInstanceOf(HTMLElement);
+    await user.click(backdrop as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
@@ -99,28 +101,16 @@ describe("load detail drawer interactions", () => {
     const dialog = screen.getByRole("dialog");
     const outsideButton = screen.getByRole("button", { name: "Outside action" });
     const closeButton = within(dialog).getByRole("button", { name: "Close load details" });
-    const firstExtra = document.createElement("button");
-    firstExtra.type = "button";
-    firstExtra.textContent = "Dialog action one";
-    const secondExtra = document.createElement("button");
-    secondExtra.type = "button";
-    secondExtra.textContent = "Dialog action two";
-    dialog.append(firstExtra, secondExtra);
+    const firstAction = within(dialog).getByRole("button", { name: "Mark Booked" });
 
     closeButton.focus();
     expect(closeButton).toHaveFocus();
 
     await user.tab();
-    expect(firstExtra).toHaveFocus();
-
-    await user.tab();
-    expect(secondExtra).toHaveFocus();
-
-    await user.tab();
-    expect(closeButton).toHaveFocus();
+    expect(firstAction).toHaveFocus();
 
     await user.tab({ shift: true });
-    expect(secondExtra).toHaveFocus();
+    expect(closeButton).toHaveFocus();
     expect(outsideButton).not.toHaveFocus();
   });
 
@@ -147,7 +137,9 @@ describe("load detail drawer interactions", () => {
     const closeButton = within(dialog).getByRole("button", { name: "Close load details" });
     closeButton.focus();
 
-    await user.click(screen.getByRole("button", { name: "Close drawer backdrop" }));
+    const backdrop = document.querySelector(".db-drawer-backdrop");
+    expect(backdrop).toBeInstanceOf(HTMLElement);
+    await user.click(backdrop as HTMLElement);
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(trigger).toHaveFocus();

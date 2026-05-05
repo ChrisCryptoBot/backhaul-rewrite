@@ -1,17 +1,132 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRegionAccess } from "@/lib/access";
 import { resolvePhase1RegionId } from "@/lib/scope";
 import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
-import { getBoardResponse } from "@/server/board";
+import {
+  deleteBoardLoadLeg,
+  getBoardResponse,
+  moveBoardLoad,
+  setBoardLoadStatus,
+  setLoadTonuLifecycle,
+  softDeleteBoardLoad,
+  updateBoardLoadFields,
+  upsertBoardLoadLeg
+} from "@/server/board";
 import { isAuthBypassed } from "@/lib/auth-mode";
-import { buildFallbackBoard } from "@/lib/board-fallback";
 import { isIsoDay, todayIsoInTimeZone } from "@/lib/board-date";
+import { policyAdapter } from "@/domain/policy/policy-adapter";
 
 const boardQuerySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  regionId: z.string().min(1).optional()
 });
+
+const taskDoneSchema = z.enum(["NOT_DONE", "DONE"]);
+const puDelStatusSchema = z.enum(["ETA_TO_PU_DEL", "LOADED_SET_TO_DEL", "LATE", "DONE", "OTHER"]);
+const boardMutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("move"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    targetSectionId: z.string().min(1)
+  }),
+  z.object({
+    action: z.literal("tonu"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    isTonu: z.boolean(),
+    tonuAmount: z.string().optional()
+  }),
+  z.object({
+    action: z.literal("status"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    status: z.enum(["BOOKED", "CANCELED", "FAILED"])
+  }),
+  z.object({
+    action: z.literal("update-fields"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    fields: z
+      .object({
+        mgStatusTask: taskDoneSchema.optional(),
+        tmwStatusTask: taskDoneSchema.optional(),
+        scaleBeforeTask: taskDoneSchema.optional(),
+        scaleAfterTask: taskDoneSchema.optional(),
+        puStatusPreset: puDelStatusSchema.optional(),
+        puStatusCustom: z.string().nullable().optional(),
+        delStatusPreset: puDelStatusSchema.optional(),
+        delStatusCustom: z.string().nullable().optional(),
+        pickupDriverAssigned: z.string().nullable().optional(),
+        commodity: z.string().nullable().optional(),
+        equipmentNeeds: z.string().nullable().optional(),
+        driverType: z.enum(["SHUTTLE", "PTP", "LTL"]).nullable().optional(),
+        coordinatorNotes: z.string().nullable().optional(),
+        attentionNote: z.string().nullable().optional(),
+        attentionSeverity: z.enum(["INFO", "WARN", "URGENT"]).optional(),
+        podStatus: z.string().nullable().optional()
+      })
+      .refine((value) => Object.keys(value).length > 0, {
+        message: "At least one field is required."
+      })
+  }),
+  z.object({
+    action: z.literal("delete"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    reason: z.string().trim().min(1)
+  }),
+  z.object({
+    action: z.literal("leg-upsert"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    leg: z.object({
+      id: z.string().optional(),
+      legIndex: z.coerce.number().int().min(0),
+      legType: z.enum(["SHUTTLE", "PTP", "DELIVERY"]),
+      driverName: z.string().nullable().optional(),
+      startCity: z.string().nullable().optional(),
+      startState: z.string().nullable().optional(),
+      endCity: z.string().nullable().optional(),
+      endState: z.string().nullable().optional(),
+      legMiles: z.string().nullable().optional(),
+      notes: z.string().nullable().optional()
+    })
+  }),
+  z.object({
+    action: z.literal("leg-delete"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    regionId: z.string().min(1).optional(),
+    loadId: z.string().min(1),
+    legId: z.string().min(1)
+  })
+]);
+
+async function resolveBoardRegion(input: {
+  requestedRegionId: string | null | undefined;
+  bypassAuth: boolean;
+}): Promise<string> {
+  if (input.requestedRegionId && input.requestedRegionId.trim().length > 0) {
+    return input.requestedRegionId.trim();
+  }
+
+  if (input.bypassAuth) {
+    try {
+      return await resolvePhase1RegionId();
+    } catch {
+      return "dev-region";
+    }
+  }
+
+  return resolvePhase1RegionId();
+}
 
 export async function GET(request: Request) {
   try {
@@ -24,34 +139,20 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const requestedDate = searchParams.get("date");
+    const requestedRegionId = searchParams.get("regionId");
     const date = bypassAuth
       ? (isIsoDay(requestedDate) ? requestedDate : todayIsoInTimeZone())
-      : boardQuerySchema.parse({ date: requestedDate }).date;
+      : boardQuerySchema.parse({ date: requestedDate, regionId: requestedRegionId ?? undefined }).date;
 
-    let phase1RegionId = "dev-region";
-    try {
-      phase1RegionId = await resolvePhase1RegionId();
-      if (!bypassAuth) {
-        await requireRegionAccess(actorUserId, phase1RegionId);
-      }
-    } catch (error) {
-      if (!bypassAuth) {
-        throw error;
-      }
+    const regionId = await resolveBoardRegion({ requestedRegionId, bypassAuth });
+    if (!bypassAuth) {
+      const access = await policyAdapter.requireRegionAccess(actorUserId, regionId);
+      policyAdapter.assertPermission(access, { resource: "BOARD", action: "READ" });
     }
-
-    let board;
-    try {
-      board = await getBoardResponse({
-        regionId: phase1RegionId,
-        date
-      });
-    } catch (error) {
-      if (!bypassAuth) {
-        throw error;
-      }
-      board = buildFallbackBoard({ regionId: phase1RegionId, date });
-    }
+    const board = await getBoardResponse({
+      regionId,
+      date
+    });
 
     return NextResponse.json(board, { status: 200 });
   } catch (error) {
@@ -60,6 +161,93 @@ export async function GET(request: Request) {
     }
     if (error instanceof PolicyViolationError) {
       return NextResponse.json({ error: POLICY_FORBIDDEN_MESSAGE }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { userId } = await auth();
+    const bypassAuth = isAuthBypassed();
+    if (!bypassAuth && !userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const actorUserId = userId ?? "dev-bypass-user";
+    const body = boardMutationSchema.parse(await request.json());
+
+    const regionId = await resolveBoardRegion({ requestedRegionId: body.regionId, bypassAuth });
+    if (!bypassAuth) {
+      const access = await policyAdapter.requireRegionAccess(actorUserId, regionId);
+      policyAdapter.assertPermission(access, { resource: "BOARD", action: "WRITE" });
+    }
+
+    if (body.action === "move") {
+      await moveBoardLoad({
+        regionId,
+        loadId: body.loadId,
+        targetSectionId: body.targetSectionId,
+        actorId: actorUserId
+      });
+    } else if (body.action === "tonu") {
+      await setLoadTonuLifecycle({
+        regionId,
+        loadId: body.loadId,
+        isTonu: body.isTonu,
+        tonuAmount: body.tonuAmount ?? null,
+        actorId: actorUserId
+      });
+    } else if (body.action === "status") {
+      await setBoardLoadStatus({
+        regionId,
+        loadId: body.loadId,
+        status: body.status,
+        actorId: actorUserId
+      });
+    } else if (body.action === "update-fields") {
+      await updateBoardLoadFields({
+        regionId,
+        loadId: body.loadId,
+        actorId: actorUserId,
+        fields: body.fields
+      });
+    } else if (body.action === "delete") {
+      await softDeleteBoardLoad({
+        regionId,
+        loadId: body.loadId,
+        reason: body.reason,
+        actorId: actorUserId
+      });
+    } else if (body.action === "leg-upsert") {
+      await upsertBoardLoadLeg({
+        regionId,
+        loadId: body.loadId,
+        actorId: actorUserId,
+        leg: body.leg
+      });
+    } else if (body.action === "leg-delete") {
+      await deleteBoardLoadLeg({
+        regionId,
+        loadId: body.loadId,
+        legId: body.legId,
+        actorId: actorUserId
+      });
+    }
+
+    const board = await getBoardResponse({
+      regionId,
+      date: body.date
+    });
+    return NextResponse.json(board, { status: 200 });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid request payload", details: error.issues }, { status: 400 });
+    }
+    if (error instanceof PolicyViolationError) {
+      return NextResponse.json({ error: POLICY_FORBIDDEN_MESSAGE }, { status: 403 });
+    }
+    if (error instanceof Error && error.message.includes("not found")) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -1,0 +1,147 @@
+.db-auth-root {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(360px, 1fr);
+  background: var(--db-bg);
+}
+
+.db-auth-panel {
+  background: var(--db-bg-rail);
+  border-right: 1px solid var(--db-border);
+  padding: 48px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+
+.db-auth-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.db-auth-brand-name {
+  font-size: 24px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.db-auth-brand-accent {
+  color: var(--db-accent);
+  font-weight: 800;
+}
+
+.db-auth-panel-copy {
+  color: var(--db-fg-mid);
+  font-size: 14px;
+  margin: 0;
+  max-width: 32ch;
+}
+
+.db-auth-main {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.db-auth-main-inner {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.db-auth-card {
+  border: 1px solid var(--db-border);
+  background: var(--db-bg-elev-1);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.db-auth-title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  letter-spacing: 0.01em;
+}
+
+.db-auth-copy {
+  margin: 0;
+  color: var(--db-fg-mid);
+  font-size: 13px;
+}
+
+.db-auth-hint {
+  margin-top: 12px;
+  color: var(--db-fg-dim);
+  font-size: 11px;
+}
+
+.db-auth-error {
+  border-color: var(--db-neg);
+  background: var(--db-neg-bg);
+}
+
+.db-auth-banner {
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.db-auth-banner.warn {
+  color: var(--db-warn);
+  background: var(--db-warn-bg);
+}
+
+.db-auth-banner.error {
+  color: var(--db-neg);
+  background: var(--db-neg-bg);
+}
+
+.db-dev-helper {
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: var(--db-bg-elev-2);
+  padding: 10px;
+}
+
+.db-dev-helper-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.db-dev-helper-msg {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--db-fg-mid);
+}
+
+.db-clerk-root {
+  width: 100%;
+}
+
+.db-clerk-card {
+  box-shadow: none;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: var(--db-bg-elev-2);
+}
+
+@media (max-width: 920px) {
+  .db-auth-root {
+    grid-template-columns: 1fr;
+  }
+
+  .db-auth-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--db-border);
+    padding: 24px 20px;
+  }
+
+  .db-auth-main {
+    padding: 20px;
+  }
+}

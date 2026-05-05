@@ -26,9 +26,24 @@ const STATUS_MAP: Record<string, StatusPresentation> = {
   TONU: { label: "TONU", tone: "canceled" }
 };
 
+const LATE_STATUS_KEYWORDS = ["LATE", "DELAYED", "AT_RISK"] as const;
+
+function normalizeStatus(status: string): string {
+  return status.trim().toUpperCase();
+}
+
 export function mapStatusPresentation(status: string | null | undefined): StatusPresentation {
   if (!status) {
     return { label: "UNKNOWN", tone: "unknown" };
   }
-  return STATUS_MAP[status] ?? { label: status.replaceAll("_", " "), tone: "unknown" };
+  const normalized = normalizeStatus(status);
+  return STATUS_MAP[normalized] ?? { label: normalized.replaceAll("_", " "), tone: "unknown" };
+}
+
+export function isLateStatus(status: string | null | undefined): boolean {
+  if (!status) {
+    return false;
+  }
+  const normalized = normalizeStatus(status);
+  return LATE_STATUS_KEYWORDS.some((keyword) => normalized.includes(keyword));
 }

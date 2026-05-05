@@ -5,16 +5,17 @@ import { getEnv } from "@/lib/env";
 import { weekIsoFromPickup } from "@/lib/week";
 import { runInRegionScope } from "@/lib/db";
 import { ReviewConflictError, ReviewNotFoundError, ReviewValidationError } from "@/lib/review-errors";
-import { enqueueJob } from "./queue";
 import { computeLoadMetrics } from "./kpi";
 import { assertWeekHasTuesdayFsc, getEffectiveFscRate } from "./fsc";
+import { workerOrchestratorAdapter } from "@/domain/workers/orchestrator-adapter";
+import { reviewContractVersion } from "@/contracts/review";
 
 type ReviewDecisionState = "PENDING" | "APPROVED" | "REJECTED";
 
 export interface CreateLoadInput {
   actorId: string;
   regionId: string;
-  rateConfirmationId: string;
+  rateConfirmationId?: string | null;
   brokerId?: string;
   pickupDate: Date;
   bookingDate?: Date;
@@ -26,9 +27,11 @@ export interface CreateLoadInput {
   puDeadheadMiles: Prisma.Decimal;
   delDeadheadMiles: Prisma.Decimal;
   fscApplies: boolean;
+  driverType?: "SHUTTLE" | "PTP" | "LTL";
 }
 
 export interface ReviewRateConfirmation {
+  contractVersion: string;
   id: string;
   parseState: string;
   reviewDecision: ReviewDecisionState;
@@ -38,8 +41,23 @@ export interface ReviewRateConfirmation {
   reviewedAt: string | null;
   reviewedById: string | null;
   reviewReason: string | null;
+  intakeDriverType?: "SHUTTLE" | "PTP" | "LTL" | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ManualLoadInput {
+  actorId: string;
+  regionId: string;
+  pickupDate: Date;
+  shipperName?: string;
+  receiverName?: string;
+  lineHaulRate: Prisma.Decimal;
+  loadedMiles: Prisma.Decimal;
+  puDeadheadMiles: Prisma.Decimal;
+  delDeadheadMiles: Prisma.Decimal;
+  fscApplies: boolean;
+  driverType?: "SHUTTLE" | "PTP" | "LTL";
 }
 
 export async function getRateConfirmationForReview(input: {
@@ -58,10 +76,11 @@ export async function getRateConfirmationForReview(input: {
       reviewedAt: Date | null;
       reviewedById: string | null;
       reviewReason: string | null;
+      intakeDriverType: "SHUTTLE" | "PTP" | "LTL" | null;
       createdAt: Date;
       updatedAt: Date;
     }>
-  >`SELECT "id", "parseState", "reviewDecision", "sourceFileUrl", "extractedPayload", "reviewedAt", "reviewedById", "reviewReason", "createdAt", "updatedAt"
+  >`SELECT "id", "parseState", "reviewDecision", "sourceFileUrl", "extractedPayload", "reviewedAt", "reviewedById", "reviewReason", "intakeDriverType", "createdAt", "updatedAt"
     FROM "RateConfirmation"
     WHERE "id" = ${input.rateConfirmationId}
       AND "regionId" = ${input.regionId}
@@ -76,6 +95,7 @@ export async function getRateConfirmationForReview(input: {
     select: { id: true }
   });
   return {
+    contractVersion: reviewContractVersion,
     id: rc.id,
     parseState: rc.parseState,
     reviewDecision: rc.reviewDecision,
@@ -85,6 +105,7 @@ export async function getRateConfirmationForReview(input: {
     reviewedAt: rc.reviewedAt?.toISOString() ?? null,
     reviewedById: rc.reviewedById,
     reviewReason: rc.reviewReason,
+    intakeDriverType: rc.intakeDriverType,
     createdAt: rc.createdAt.toISOString(),
     updatedAt: rc.updatedAt.toISOString()
   };
@@ -138,10 +159,23 @@ function readOptionalDecimal(record: Record<string, unknown>, key: string, fallb
   return new Prisma.Decimal(fallback);
 }
 
+function readDriverType(record: Record<string, unknown>, key: string): "SHUTTLE" | "PTP" | "LTL" | undefined {
+  const value = record[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "SHUTTLE" || normalized === "PTP" || normalized === "LTL") {
+    return normalized;
+  }
+  return undefined;
+}
+
 function mapExtractedPayloadToCreateLoadInput(input: {
   actorId: string;
   regionId: string;
   rateConfirmationId: string;
+  intakeDriverType?: "SHUTTLE" | "PTP" | "LTL" | null;
   brokerId?: string;
   extractedPayload: Record<string, unknown>;
 }): CreateLoadInput {
@@ -158,7 +192,8 @@ function mapExtractedPayloadToCreateLoadInput(input: {
     loadedMiles: readRequiredDecimal(input.extractedPayload, "loadedMiles"),
     puDeadheadMiles: readOptionalDecimal(input.extractedPayload, "puDeadheadMiles"),
     delDeadheadMiles: readOptionalDecimal(input.extractedPayload, "delDeadheadMiles"),
-    fscApplies: readBoolean(input.extractedPayload, "fscApplies", false)
+    fscApplies: readBoolean(input.extractedPayload, "fscApplies", false),
+    driverType: readDriverType(input.extractedPayload, "driverType") ?? input.intakeDriverType ?? undefined
   };
 }
 
@@ -204,6 +239,7 @@ export async function approveRateConfirmationReview(input: {
       actorId: input.actorId,
       regionId: input.regionId,
       rateConfirmationId: rc.id,
+      intakeDriverType: rc.intakeDriverType,
       brokerId: broker?.id,
       extractedPayload: extracted
     });
@@ -303,7 +339,8 @@ export async function createLoadFromReview(
     shipperName: input.shipperName,
     receiverName: input.receiverName,
     brokerId: input.brokerId,
-    rateConfirmationId: input.rateConfirmationId,
+    rateConfirmationId: input.rateConfirmationId ?? null,
+    pickupNumbers: [],
     lineHaulRate: input.lineHaulRate,
     loadedMiles: input.loadedMiles,
     puDeadheadMiles: input.puDeadheadMiles,
@@ -311,11 +348,13 @@ export async function createLoadFromReview(
     fscApplies: input.fscApplies,
     fscRateUsed: resolvedFscRate,
     fscAmount: metrics.fscAmount,
+    allInRevenue: metrics.allInRevenue,
     totalTripMiles: metrics.totalTripMiles,
     negotiableMiles: metrics.negotiableMiles,
     loadedRpm: metrics.loadedRpm,
     negotiationFloorRpm: metrics.negotiationFloorRpm,
-    emptyMilePct: metrics.emptyMilePct
+    emptyMilePct: metrics.emptyMilePct,
+    driverType: input.driverType
   } as Prisma.LoadUncheckedCreateInput;
 
   const load = await db.load.create({
@@ -336,7 +375,7 @@ export async function createLoadFromReview(
     })
   });
 
-  await enqueueJob(SQS_RECOMPUTE_QUEUE_URL, {
+  await workerOrchestratorAdapter.enqueue(SQS_RECOMPUTE_QUEUE_URL, {
     regionId: input.regionId,
     weekIso: derivedWeekIso,
     entityId: load.id,
@@ -344,4 +383,27 @@ export async function createLoadFromReview(
   });
 
   return { loadId: load.id };
+}
+
+export async function createManualLoad(input: ManualLoadInput): Promise<{ loadId: string }> {
+  return runInRegionScope(input.regionId, async (tx) =>
+    createLoadFromReview(
+      {
+        actorId: input.actorId,
+        regionId: input.regionId,
+        rateConfirmationId: null,
+        pickupDate: input.pickupDate,
+        bookingDate: input.pickupDate,
+        shipperName: input.shipperName,
+        receiverName: input.receiverName,
+        lineHaulRate: input.lineHaulRate,
+        loadedMiles: input.loadedMiles,
+        puDeadheadMiles: input.puDeadheadMiles,
+        delDeadheadMiles: input.delDeadheadMiles,
+        fscApplies: input.fscApplies,
+        driverType: input.driverType
+      },
+      tx
+    )
+  );
 }

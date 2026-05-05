@@ -4,10 +4,10 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { upsertFscIndex } from "@/server/fsc";
 import { mapWireToDbFscSource, parseWireFscSource } from "@/lib/fsc-source";
-import { requireRegionAccess } from "@/lib/access";
 import { runInRegionScope } from "@/lib/db";
 import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
 import { isWriteBypassed } from "@/lib/auth-mode";
+import { policyAdapter } from "@/domain/policy/policy-adapter";
 const fscPayloadSchema = z.object({
   regionId: z.string().min(1),
   weekIso: z.string().regex(/^\d{4}-W\d{2}$/),
@@ -37,7 +37,10 @@ export async function POST(request: Request) {
 
     const access = bypassWrites
       ? { userId: "dev-bypass-user", regionId: payload.regionId, role: "ADMIN" as const }
-      : await requireRegionAccess(actorUserId, payload.regionId);
+      : await policyAdapter.requireRegionAccess(actorUserId, payload.regionId);
+    if (!bypassWrites) {
+      policyAdapter.assertPermission(access, { resource: "FSC_INDEX", action: "WRITE" });
+    }
 
     await runInRegionScope(payload.regionId, async (tx) =>
       upsertFscIndex({

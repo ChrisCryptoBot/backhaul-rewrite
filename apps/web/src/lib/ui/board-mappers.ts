@@ -3,6 +3,7 @@ import { toNumber } from "@/lib/ui/parse";
 
 export interface ViewBoardLoadRow {
   id: string;
+  rateConfirmationId: string | null;
   ref: string;
   status: string;
   shipper: string;
@@ -18,17 +19,59 @@ export interface ViewBoardLoadRow {
   routeId: string | null;
   loadNumber: string | null;
   pickupNumber: string | null;
+  pickupNumbers: string[];
+  lateCancelFailedNote: string | null;
+  attentionSeverity: "INFO" | "WARN" | "URGENT";
+  scaleBeforeTask: "NOT_DONE" | "DONE";
+  scaleAfterTask: "NOT_DONE" | "DONE";
+  brokerName: string | null;
+  brokerRepName: string | null;
+  mgStatusTask: "NOT_DONE" | "DONE";
+  tmwStatusTask: "NOT_DONE" | "DONE";
+  pickupDriverAssigned: string | null;
+  tractorTrailer1: string | null;
+  tractorTrailer2: string | null;
+  commodity: string | null;
+  equipmentNeeds: string | null;
+  equipmentType: string | null;
+  equipmentAccessory: string | null;
+  equipmentOtherText: string | null;
+  puStatusPreset: string;
+  puStatusCustom: string | null;
+  deliveryDate: string | null;
+  delStatusPreset: string;
+  delStatusCustom: string | null;
+  podStatus: string | null;
+  fscAmount: number | null;
+  tonuAmount: number | null;
+  allInRevenue: number | null;
+  coordinatorNotes: string | null;
+  driverType: string | null;
   pickupCityState: string | null;
   pickupWindow: string | null;
   deliveryCityState: string | null;
   deliveryWindow: string | null;
   dropLotName: string | null;
+  legs: Array<{
+    id: string;
+    legIndex: number;
+    legType: string;
+    driverName: string | null;
+    startCity: string | null;
+    startState: string | null;
+    endCity: string | null;
+    endState: string | null;
+    legMiles: number | null;
+    notes: string | null;
+  }>;
 }
 
 export interface ViewBoardSection {
   id: string;
   type: BoardSection["type"];
   title: string;
+  code: string | null;
+  note: string | null;
   filledCount: number;
   capacity: number | null;
   city: string | null;
@@ -40,20 +83,28 @@ export interface ViewBoardSection {
 
 export interface ViewBoardResponse {
   regionId: string;
+  regionCode: string | null;
+  regionLabel: string | null;
   date: string;
   sections: ViewBoardSection[];
   totals: {
     loads: number;
     lineHaul: number | null;
+    fsc: number | null;
+    tonu: number | null;
+    allIn: number | null;
     loadedMiles: number | null;
     emptyPctRatio: number | null;
     floorRpm: number | null;
   };
+  availableRegions: Array<{ id: string; code: string; name: string }>;
+  activeRegionId: string | null;
 }
 
 export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
   return {
     id: row.id,
+    rateConfirmationId: row.rateConfirmationId,
     ref: row.threePlRefNumber ?? "—",
     status: row.status,
     shipper: row.shipperName ?? "—",
@@ -69,11 +120,51 @@ export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
     routeId: row.routeId,
     loadNumber: row.loadNumber,
     pickupNumber: row.pickupNumber,
+    pickupNumbers: row.pickupNumbers,
+    lateCancelFailedNote: row.lateCancelFailedNote,
+    attentionSeverity: row.attentionSeverity,
+    scaleBeforeTask: row.scaleBeforeTask,
+    scaleAfterTask: row.scaleAfterTask,
+    brokerName: row.brokerName,
+    brokerRepName: row.brokerRepName,
+    mgStatusTask: row.mgStatusTask,
+    tmwStatusTask: row.tmwStatusTask,
+    pickupDriverAssigned: row.pickupDriverAssigned,
+    tractorTrailer1: row.tractorTrailer1,
+    tractorTrailer2: row.tractorTrailer2,
+    commodity: row.commodity,
+    equipmentNeeds: row.equipmentNeeds,
+    equipmentType: row.equipmentType,
+    equipmentAccessory: row.equipmentAccessory,
+    equipmentOtherText: row.equipmentOtherText,
+    puStatusPreset: row.puStatusPreset,
+    puStatusCustom: row.puStatusCustom,
+    deliveryDate: row.deliveryDate,
+    delStatusPreset: row.delStatusPreset,
+    delStatusCustom: row.delStatusCustom,
+    podStatus: row.podStatus,
+    fscAmount: toNumber(row.fscAmount),
+    tonuAmount: toNumber(row.tonuAmount),
+    allInRevenue: toNumber(row.allInRevenue),
+    coordinatorNotes: row.coordinatorNotes,
+    driverType: row.driverType,
     pickupCityState: row.pickupCityState,
     pickupWindow: row.pickupWindow,
     deliveryCityState: row.deliveryCityState,
     deliveryWindow: row.deliveryWindow,
-    dropLotName: row.dropLotName
+    dropLotName: row.dropLotName,
+    legs: (row.legs ?? []).map((leg) => ({
+      id: leg.id,
+      legIndex: leg.legIndex,
+      legType: leg.legType,
+      driverName: leg.driverName,
+      startCity: leg.startCity,
+      startState: leg.startState,
+      endCity: leg.endCity,
+      endState: leg.endState,
+      legMiles: toNumber(leg.legMiles),
+      notes: leg.notes
+    }))
   };
 }
 
@@ -87,11 +178,15 @@ function sectionIdFrom(section: BoardSection, index: number): string {
 export function mapBoardResponseToView(response: BoardResponse): ViewBoardResponse {
   return {
     regionId: response.regionId,
+    regionCode: response.regionCode ?? null,
+    regionLabel: response.regionLabel ?? null,
     date: response.date,
     sections: response.sections.map((section, index) => ({
       id: sectionIdFrom(section, index),
       type: section.type,
       title: section.title,
+      code: section.code ?? section.dropLot?.code ?? null,
+      note: section.note ?? section.dropLot?.note ?? null,
       filledCount: section.filledCount,
       capacity: section.dropLot?.dailyCapacity ?? null,
       city: section.dropLot?.city ?? null,
@@ -103,9 +198,14 @@ export function mapBoardResponseToView(response: BoardResponse): ViewBoardRespon
     totals: {
       loads: response.dayTotals.loadCount,
       lineHaul: toNumber(response.dayTotals.lineHaulTotal),
+      fsc: toNumber(response.dayTotals.fscTotal),
+      tonu: toNumber(response.dayTotals.tonuTotal),
+      allIn: toNumber(response.dayTotals.allInTotal),
       loadedMiles: toNumber(response.dayTotals.loadedMilesTotal),
       emptyPctRatio: toNumber(response.dayTotals.emptyMilePct),
       floorRpm: toNumber(response.dayTotals.negFloorRpm)
-    }
+    },
+    availableRegions: response.availableRegions ?? [],
+    activeRegionId: response.activeRegionId ?? null
   };
 }

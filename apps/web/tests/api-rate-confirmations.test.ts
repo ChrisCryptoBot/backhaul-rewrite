@@ -4,9 +4,14 @@ import { IdempotencyConflictError } from "@/lib/idempotency-error";
 
 const auth = vi.fn();
 const requireRegionAccess = vi.fn();
+const assertPermission = vi.fn();
 const runInRegionScope = vi.fn();
 const finalizeUpload = vi.fn();
-const enqueueJob = vi.fn();
+const persistUploadedPdf = vi.fn();
+const writeStagedUploadBinary = vi.fn();
+const createStagedUpload = vi.fn();
+const readStagedUpload = vi.fn();
+const clearStagedUpload = vi.fn();
 const isWriteBypassed = vi.fn();
 const pdfFixtureBase64 = "JVBERi0xLjQgZmFrZQ==";
 
@@ -21,8 +26,11 @@ vi.mock("@/lib/env", () => ({
   })
 }));
 
-vi.mock("@/lib/access", () => ({
-  requireRegionAccess
+vi.mock("@/domain/policy/policy-adapter", () => ({
+  policyAdapter: {
+    requireRegionAccess,
+    assertPermission
+  }
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -34,8 +42,12 @@ vi.mock("@/server/ingestion", () => ({
   finalizeUpload
 }));
 
-vi.mock("@/server/queue", () => ({
-  enqueueJob
+vi.mock("@/server/upload-storage", () => ({
+  persistUploadedPdf,
+  writeStagedUploadBinary,
+  createStagedUpload,
+  readStagedUpload,
+  clearStagedUpload
 }));
 
 vi.mock("@/lib/auth-mode", () => ({
@@ -46,6 +58,18 @@ describe("POST /api/rate-confirmations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isWriteBypassed.mockReturnValue(false);
+    persistUploadedPdf.mockResolvedValue({ mode: "local-fallback" });
+    createStagedUpload.mockResolvedValue({
+      uploadId: "upload-1",
+      uploadUrl: "/api/rate-confirmations?uploadId=upload-1",
+      sourceFileUrl: "https://backhaul-ratecons.s3.us-east-1.amazonaws.com/uploads/upload-1.pdf",
+      expiresAtIso: "2026-05-04T09:00:00.000Z"
+    });
+    readStagedUpload.mockResolvedValue({
+      sourceFileName: "ratecon.pdf",
+      sourceFileUrl: "https://backhaul-ratecons.s3.us-east-1.amazonaws.com/uploads/upload-1.pdf",
+      fileBuffer: Buffer.from("%PDF-1.4 fake")
+    });
     runInRegionScope.mockImplementation(async (_regionId: string, fn: () => Promise<unknown>) => fn());
   });
 
@@ -122,7 +146,7 @@ describe("POST /api/rate-confirmations", () => {
   test("succeeds for valid canonical payload", async () => {
     auth.mockResolvedValue({ userId: "user-1" });
     requireRegionAccess.mockResolvedValue({ userId: "user-1", regionId: "region-1", role: "COORDINATOR" });
-    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-1" });
+    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-1", duplicateKind: "NONE", alreadyExisted: false });
 
     const { POST } = await import("@/app/api/rate-confirmations/route");
     const response = await POST(
@@ -142,14 +166,25 @@ describe("POST /api/rate-confirmations", () => {
     );
 
     expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      contractVersion: "v1",
+      rateConfirmationId: "rc-1",
+      duplicateKind: "NONE",
+      alreadyExisted: false
+    });
+    expect(persistUploadedPdf).toHaveBeenCalledTimes(1);
     expect(finalizeUpload).toHaveBeenCalledTimes(1);
-    expect(enqueueJob).toHaveBeenCalledTimes(1);
+    expect(finalizeUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enqueueParseJob: true
+      })
+    );
   });
 
   test("accepts sourceFileName when sourceFileUrl is omitted", async () => {
     auth.mockResolvedValue({ userId: "user-1" });
     requireRegionAccess.mockResolvedValue({ userId: "user-1", regionId: "region-1", role: "COORDINATOR" });
-    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-1" });
+    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-1", duplicateKind: "NONE", alreadyExisted: false });
 
     const { POST } = await import("@/app/api/rate-confirmations/route");
     const response = await POST(
@@ -198,7 +233,7 @@ describe("POST /api/rate-confirmations", () => {
   test("allows unauthenticated write only when explicit write bypass is enabled", async () => {
     isWriteBypassed.mockReturnValue(true);
     auth.mockResolvedValue({ userId: null });
-    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-1" });
+    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-1", duplicateKind: "NONE", alreadyExisted: false });
     const { POST } = await import("@/app/api/rate-confirmations/route");
     const response = await POST(
       new Request("http://localhost/api/rate-confirmations", {
@@ -233,5 +268,53 @@ describe("POST /api/rate-confirmations", () => {
     );
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: "Only PDF files are accepted." });
+  });
+
+  test("supports two-step direct upload handshake", async () => {
+    auth.mockResolvedValue({ userId: "user-1" });
+    requireRegionAccess.mockResolvedValue({ userId: "user-1", regionId: "region-1", role: "COORDINATOR" });
+    finalizeUpload.mockResolvedValue({ rateConfirmationId: "rc-step-1", duplicateKind: "NONE", alreadyExisted: false });
+    const { POST, PUT } = await import("@/app/api/rate-confirmations/route");
+
+    const prepareResponse = await POST(
+      new Request("http://localhost/api/rate-confirmations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractVersion: "v1",
+          operation: "prepare-upload",
+          regionId: "region-1",
+          pickupDate: "2026-04-27T12:00:00.000Z",
+          sourceFileName: "ratecon.pdf"
+        })
+      })
+    );
+    expect(prepareResponse.status).toBe(201);
+
+    const uploadResponse = await PUT(
+      new Request("http://localhost/api/rate-confirmations?uploadId=upload-1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/pdf" },
+        body: "%PDF-1.4 direct"
+      })
+    );
+    expect(uploadResponse.status).toBe(204);
+    expect(writeStagedUploadBinary).toHaveBeenCalledTimes(1);
+
+    const finalizeResponse = await POST(
+      new Request("http://localhost/api/rate-confirmations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractVersion: "v1",
+          operation: "finalize-upload",
+          regionId: "region-1",
+          pickupDate: "2026-04-27T12:00:00.000Z",
+          uploadId: "upload-1"
+        })
+      })
+    );
+    expect(finalizeResponse.status).toBe(201);
+    expect(clearStagedUpload).toHaveBeenCalledWith({ uploadId: "upload-1" });
   });
 });

@@ -66,7 +66,7 @@ describe("snapshot recompute regression", () => {
     expect(updateArgs.data.totalTripMiles.toString()).toBe("420");
   });
 
-  test("excludes canceled and failed loads from weekly aggregates", async () => {
+  test("includes canceled/failed loads with movement or financial impact", async () => {
     tx.load.findMany.mockResolvedValue([
       {
         status: "BOOKED",
@@ -97,8 +97,8 @@ describe("snapshot recompute regression", () => {
     await recomputeWeekSnapshot("region-1", "2026-W18", "actor-1");
 
     const updateArgs = tx.weekSnapshot.update.mock.calls[0][0];
-    expect(updateArgs.data.loadCount).toBe(1);
-    expect(updateArgs.data.lineHaulRevenue.toString()).toBe("1000");
-    expect(updateArgs.data.fuelSurchargeAmount.toString()).toBe("100");
+    expect(updateArgs.data.loadCount).toBe(2);
+    expect(updateArgs.data.lineHaulRevenue.toString()).toBe("1900");
+    expect(updateArgs.data.fuelSurchargeAmount.toString()).toBe("190");
   });
 });

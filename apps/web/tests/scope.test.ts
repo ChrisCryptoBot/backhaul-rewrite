@@ -30,4 +30,21 @@ describe("region scope", () => {
       )
     ).resolves.toBeUndefined();
   });
+
+  test("allows corporate ops cross-region in expanded mode", async () => {
+    process.env.MULTIREGION_POLICY_MODE = "expanded";
+    findUnique.mockResolvedValue({ id: "region-ne-id" });
+    const { assertRegionAccess } = await import("@/lib/scope");
+    await expect(
+      assertRegionAccess(
+        {
+          userId: "u1",
+          role: "CORPORATE_OPS",
+          regionId: "region-ne-id"
+        },
+        "region-west-id"
+      )
+    ).resolves.toBeUndefined();
+    delete process.env.MULTIREGION_POLICY_MODE;
+  });
 });

@@ -3,8 +3,12 @@ import { ParseState, Prisma, PrismaClient } from "@prisma/client";
 import { createAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { getEnv } from "@/lib/env";
-import { enqueueJob } from "./queue";
 import { IdempotencyConflictError } from "@/lib/idempotency-error";
+import { evaluateDuplicatePolicy } from "@/domain/ingestion/duplicate-policy";
+import { assertValidIngestionTransition } from "@/domain/ingestion/lifecycle";
+import { workerOrchestratorAdapter } from "@/domain/workers/orchestrator-adapter";
+import { withNonDeletedRegionScope } from "@/lib/scoped-query";
+import { emitWorkerMetric } from "@/server/worker-metrics";
 
 export function computeContentHash(fileBuffer: Buffer): string {
   return crypto.createHash("sha256").update(fileBuffer).digest("hex");
@@ -17,9 +21,14 @@ export async function finalizeUpload(input: {
   sourceFileHash: string;
   acceptedById?: string;
   idempotencyKey?: string;
+  intakeDriverType?: "SHUTTLE" | "PTP" | "LTL";
   db?: PrismaClient | Prisma.TransactionClient;
   enqueueParseJob?: boolean;
-}): Promise<{ rateConfirmationId: string }> {
+}): Promise<{
+  rateConfirmationId: string;
+  duplicateKind: "NONE" | "EXACT_DUPLICATE" | "SOFT_DUPLICATE_WARNING";
+  alreadyExisted: boolean;
+}> {
   const { SQS_PARSE_QUEUE_URL } = getEnv();
   const db = input.db ?? prisma;
   const enqueueParseJob = input.enqueueParseJob ?? true;
@@ -31,16 +40,33 @@ export async function finalizeUpload(input: {
       if (existingByIdempotency.sourceFileHash !== input.sourceFileHash) {
         throw new IdempotencyConflictError("Idempotency-Key conflict: payload hash differs from existing request");
       }
-      return { rateConfirmationId: existingByIdempotency.id };
+      return { rateConfirmationId: existingByIdempotency.id, duplicateKind: "EXACT_DUPLICATE", alreadyExisted: true };
     }
   }
 
   const existing = await db.rateConfirmation.findUnique({
     where: { sourceFileHash: input.sourceFileHash }
   });
-  if (existing) {
-    return { rateConfirmationId: existing.id };
+  const softDuplicate = await db.rateConfirmation.findFirst({
+    where: {
+      regionId: input.regionId,
+      weekIso: input.weekIso,
+      sourceFileUrl: input.sourceFileUrl,
+      deletedAt: null
+    }
+  });
+  const duplicateResolution = evaluateDuplicatePolicy({
+    hasExactHashDuplicate: Boolean(existing),
+    hasSoftDuplicate: Boolean(softDuplicate && !existing)
+  });
+  if (duplicateResolution.kind === "EXACT_DUPLICATE" && existing) {
+    return { rateConfirmationId: existing.id, duplicateKind: "EXACT_DUPLICATE", alreadyExisted: true };
   }
+
+  const initialExtractedPayload: Prisma.InputJsonValue =
+    duplicateResolution.kind === "SOFT_DUPLICATE_WARNING"
+      ? ({ duplicateSignal: "SOFT_DUPLICATE_WARNING" } as Prisma.InputJsonValue)
+      : (Prisma.JsonNull as unknown as Prisma.InputJsonValue);
 
   const rateConfirmation = await db.rateConfirmation.create({
     data: {
@@ -49,7 +75,10 @@ export async function finalizeUpload(input: {
       sourceFileUrl: input.sourceFileUrl,
       sourceFileHash: input.sourceFileHash,
       idempotencyKey: input.idempotencyKey,
-      parseState: ParseState.UPLOADED
+      parseState: ParseState.UPLOADED,
+      duplicateSignal: duplicateResolution.kind === "SOFT_DUPLICATE_WARNING" ? "SOFT_DUPLICATE_WARNING" : null,
+      intakeDriverType: input.intakeDriverType ?? null,
+      extractedPayload: initialExtractedPayload
     }
   });
 
@@ -74,7 +103,22 @@ export async function finalizeUpload(input: {
   }
 
   if (enqueueParseJob) {
-    await enqueueJob(SQS_PARSE_QUEUE_URL, {
+    assertValidIngestionTransition(ParseState.UPLOADED, ParseState.QUEUED);
+    await db.rateConfirmation.update({
+      where: { id: rateConfirmation.id },
+      data: { parseState: ParseState.QUEUED }
+    });
+    await db.auditLog.create({
+      data: createAuditLog({
+        entityType: "RateConfirmation",
+        entityId: rateConfirmation.id,
+        action: "STATE_TRANSITION",
+        actorId: input.acceptedById ?? "system",
+        timestamp: new Date(),
+        afterValue: { from: ParseState.UPLOADED, to: ParseState.QUEUED }
+      })
+    });
+    await workerOrchestratorAdapter.enqueue(SQS_PARSE_QUEUE_URL, {
       regionId: input.regionId,
       weekIso: input.weekIso,
       entityId: rateConfirmation.id,
@@ -82,13 +126,22 @@ export async function finalizeUpload(input: {
     });
   }
 
-  return { rateConfirmationId: rateConfirmation.id };
+  return {
+    rateConfirmationId: rateConfirmation.id,
+    duplicateKind: duplicateResolution.kind === "SOFT_DUPLICATE_WARNING" ? "SOFT_DUPLICATE_WARNING" : "NONE",
+    alreadyExisted: false
+  };
 }
 
 export function mapParseFailure(
   _confidence: number,
   code: "invalid" | "timeout" | "schema" | "low-confidence"
 ): ParseState {
+  emitWorkerMetric({
+    metric: "parse_failure_class",
+    value: 1,
+    tags: { code }
+  });
   if (code === "invalid") {
     return ParseState.FAILED_INVALID;
   }
@@ -99,4 +152,50 @@ export function mapParseFailure(
     return ParseState.FAILED_SCHEMA;
   }
   return ParseState.FAILED_LOW_CONFIDENCE;
+}
+
+export async function markParseState(input: {
+  rateConfirmationId: string;
+  regionId: string;
+  actorId: string;
+  to: ParseState;
+  db?: PrismaClient | Prisma.TransactionClient;
+}): Promise<void> {
+  const db = input.db ?? prisma;
+  const rc = await db.rateConfirmation.findFirst({
+    where: withNonDeletedRegionScope(input.regionId, { id: input.rateConfirmationId })
+  });
+  if (!rc) {
+    throw new Error("Rate confirmation not found for lifecycle transition.");
+  }
+  try {
+    assertValidIngestionTransition(rc.parseState, input.to);
+  } catch (error) {
+    await db.auditLog.create({
+      data: createAuditLog({
+        entityType: "RateConfirmation",
+        entityId: rc.id,
+        action: "STATE_TRANSITION_REJECTED",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        reason: error instanceof Error ? error.message : "Illegal transition",
+        afterValue: { from: rc.parseState, to: input.to }
+      })
+    });
+    throw error;
+  }
+  await db.rateConfirmation.update({
+    where: { id: rc.id },
+    data: { parseState: input.to }
+  });
+  await db.auditLog.create({
+    data: createAuditLog({
+      entityType: "RateConfirmation",
+      entityId: rc.id,
+      action: "STATE_TRANSITION",
+      actorId: input.actorId,
+      timestamp: new Date(),
+      afterValue: { from: rc.parseState, to: input.to }
+    })
+  });
 }

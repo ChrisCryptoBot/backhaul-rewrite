@@ -21,6 +21,7 @@ describe("finalizeUpload", () => {
     const db = {
       rateConfirmation: {
         findUnique: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: "rc-1" })
       },
       $executeRaw: vi.fn().mockResolvedValue(1),
@@ -38,7 +39,7 @@ describe("finalizeUpload", () => {
       enqueueParseJob: false,
       db: db as never
     });
-    expect(result).toEqual({ rateConfirmationId: "rc-1" });
+    expect(result).toEqual({ rateConfirmationId: "rc-1", duplicateKind: "NONE", alreadyExisted: false });
     expect(db.$executeRaw).toHaveBeenCalledTimes(1);
     expect(db.auditLog.create).toHaveBeenCalledTimes(1);
     expect(db.auditLog.create).toHaveBeenCalledWith(
@@ -60,7 +61,8 @@ describe("finalizeUpload", () => {
         findUnique: vi.fn().mockResolvedValueOnce({
           id: "rc-existing",
           sourceFileHash: "hash-1"
-        })
+        }),
+        findFirst: vi.fn().mockResolvedValue(null)
       },
       $executeRaw: vi.fn().mockResolvedValue(1),
       auditLog: {
@@ -78,7 +80,7 @@ describe("finalizeUpload", () => {
       enqueueParseJob: false,
       db: db as never
     });
-    expect(result).toEqual({ rateConfirmationId: "rc-existing" });
+    expect(result).toEqual({ rateConfirmationId: "rc-existing", duplicateKind: "EXACT_DUPLICATE", alreadyExisted: true });
     expect(db.$executeRaw).not.toHaveBeenCalled();
     expect(db.auditLog.create).not.toHaveBeenCalled();
     expect(enqueueJob).not.toHaveBeenCalled();

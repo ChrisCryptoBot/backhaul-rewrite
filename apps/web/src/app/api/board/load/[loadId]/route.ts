@@ -1,16 +1,31 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { requireRegionAccess } from "@/lib/access";
 import { resolvePhase1RegionId } from "@/lib/scope";
 import { isAuthBypassed } from "@/lib/auth-mode";
 import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
 import { getLoadDetail } from "@/server/board-detail";
+import { policyAdapter } from "@/domain/policy/policy-adapter";
 
 interface Params {
   params: { loadId: string };
 }
 
-export async function GET(_request: Request, { params }: Params) {
+async function resolveLoadRegion(request: Request, bypassAuth: boolean): Promise<string> {
+  const requested = new URL(request.url).searchParams.get("regionId");
+  if (requested && requested.trim().length > 0) {
+    return requested.trim();
+  }
+  if (bypassAuth) {
+    try {
+      return await resolvePhase1RegionId();
+    } catch {
+      return "dev-region";
+    }
+  }
+  return resolvePhase1RegionId();
+}
+
+export async function GET(request: Request, { params }: Params) {
   try {
     const { userId } = await auth();
     const bypassAuth = isAuthBypassed();
@@ -19,19 +34,13 @@ export async function GET(_request: Request, { params }: Params) {
     }
     const actorUserId = userId ?? "dev-bypass-user";
 
-    let regionId = "dev-region";
-    try {
-      regionId = await resolvePhase1RegionId();
-      if (!bypassAuth) {
-        await requireRegionAccess(actorUserId, regionId);
-      }
-    } catch (error) {
-      if (!bypassAuth) {
-        throw error;
-      }
+    const regionId = await resolveLoadRegion(request, bypassAuth);
+    if (!bypassAuth) {
+      const access = await policyAdapter.requireRegionAccess(actorUserId, regionId);
+      policyAdapter.assertPermission(access, { resource: "BOARD", action: "READ" });
     }
 
-    const payload = await getLoadDetail({
+    let payload = await getLoadDetail({
       regionId,
       loadId: params.loadId
     });

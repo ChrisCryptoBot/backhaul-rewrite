@@ -208,7 +208,7 @@ describe("POST /api/fsc", () => {
     ["5", 201],
     ["5.0001", 400],
     ["4.9999", 201]
-  ])("validates FSC bounds for value=%s", async (value, expectedStatus) => {
+  ])("validates FSC bounds for value=%s", async (value: string, expectedStatus: number) => {
     auth.mockResolvedValue({ userId: "user-1" });
     requireRegionAccess.mockResolvedValue({ userId: "user-1", regionId: "region-1", role: "REGIONAL_MANAGER" });
     const { POST } = await import("@/app/api/fsc/route");

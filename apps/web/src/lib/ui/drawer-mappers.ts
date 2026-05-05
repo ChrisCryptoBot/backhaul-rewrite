@@ -17,6 +17,7 @@ export interface LoadDetailResponse {
   routeId: string | null;
   loadNumber: string | null;
   pickupNumber: string | null;
+  pickupNumbers: string[];
   shipperName: string | null;
   pickupCityState: string | null;
   pickupWindow: string | null;
@@ -40,6 +41,14 @@ export interface LoadDetailResponse {
   equipmentNeeds: string | null;
   mgStatus: string | null;
   tmwStatus: string | null;
+  mgStatusTask: string;
+  tmwStatusTask: string;
+  scaleBeforeTask: string;
+  scaleAfterTask: string;
+  coordinatorNotes: string | null;
+  attentionNote: string | null;
+  attentionSeverity: string;
+  driverType: string | null;
   podStatus: string | null;
   rateConfirmation: {
     id: string;
@@ -47,6 +56,18 @@ export interface LoadDetailResponse {
     parseState: string;
     parseConfidence: string | null;
   } | null;
+  legs: Array<{
+    id: string;
+    legIndex: number;
+    legType: string;
+    driverName: string | null;
+    startCity: string | null;
+    startState: string | null;
+    endCity: string | null;
+    endState: string | null;
+    legMiles: string | null;
+    notes: string | null;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,6 +81,7 @@ export interface ViewLoadDetail {
     routeId: string;
     loadNumber: string;
     pickupNumber: string;
+    pickupNumbers: string[];
   };
   geography: {
     shipper: string;
@@ -88,6 +110,14 @@ export interface ViewLoadDetail {
     equipmentNeeds: string;
     mgStatus: string;
     tmwStatus: string;
+    mgStatusTask: string;
+    tmwStatusTask: string;
+    scaleBeforeTask: string;
+    scaleAfterTask: string;
+    coordinatorNotes: string;
+    attentionNote: string;
+    attentionSeverity: string;
+    driverType: string;
     podStatus: string;
   };
   rateConfirmation: {
@@ -96,6 +126,16 @@ export interface ViewLoadDetail {
     parseState: string;
     parseConfidence: number | null;
   } | null;
+  legs: Array<{
+    id: string;
+    legIndex: number;
+    legType: string;
+    driverName: string;
+    start: string;
+    end: string;
+    legMiles: number | null;
+    notes: string;
+  }>;
   audit: {
     createdAt: string;
     updatedAt: string;
@@ -131,7 +171,8 @@ export function mapLoadDetailToView(input: LoadDetailResponse): ViewLoadDetail {
     ids: {
       routeId: dash(input.routeId),
       loadNumber: dash(input.loadNumber),
-      pickupNumber: dash(input.pickupNumber)
+      pickupNumber: dash(input.pickupNumber),
+      pickupNumbers: input.pickupNumbers ?? []
     },
     geography: {
       shipper: dash(input.shipperName),
@@ -160,6 +201,14 @@ export function mapLoadDetailToView(input: LoadDetailResponse): ViewLoadDetail {
       equipmentNeeds: dash(input.equipmentNeeds),
       mgStatus: dash(input.mgStatus),
       tmwStatus: dash(input.tmwStatus),
+      mgStatusTask: dash(input.mgStatusTask),
+      tmwStatusTask: dash(input.tmwStatusTask),
+      scaleBeforeTask: dash(input.scaleBeforeTask),
+      scaleAfterTask: dash(input.scaleAfterTask),
+      coordinatorNotes: dash(input.coordinatorNotes),
+      attentionNote: dash(input.attentionNote),
+      attentionSeverity: dash(input.attentionSeverity),
+      driverType: dash(input.driverType),
       podStatus: dash(input.podStatus)
     },
     rateConfirmation: input.rateConfirmation
@@ -170,6 +219,16 @@ export function mapLoadDetailToView(input: LoadDetailResponse): ViewLoadDetail {
           parseConfidence: toNumber(input.rateConfirmation.parseConfidence)
         }
       : null,
+    legs: (input.legs ?? []).map((leg) => ({
+      id: leg.id,
+      legIndex: leg.legIndex,
+      legType: leg.legType,
+      driverName: dash(leg.driverName),
+      start: [leg.startCity, leg.startState].filter(Boolean).join(", ") || "—",
+      end: [leg.endCity, leg.endState].filter(Boolean).join(", ") || "—",
+      legMiles: toNumber(leg.legMiles),
+      notes: dash(leg.notes)
+    })),
     audit: {
       createdAt: input.createdAt,
       updatedAt: input.updatedAt

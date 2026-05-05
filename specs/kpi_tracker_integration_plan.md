@@ -210,6 +210,14 @@ Acceptance:
 - CI includes lint, typecheck, unit tests, and component regression checks.
 - No auth-bypass behavior leaks into production mode.
 
+### 2026-05-03 implementation note
+
+- Trend panel chart strategy is now **chart library-based** (interactive chart surface replacing static SVG).
+- Trend range is driven by query-backed windowing and is kept in sync with the trend table rows.
+- Trend points support hover, keyboard focus, and tap interaction with metric popup content.
+- Visual regression coverage now includes dense trend windows and dark-mode trend baseline.
+- Remaining hardening focus: keep accessibility and regression coverage aligned as chart interactions evolve.
+
 ## Test Plan Expansion
 
 Add/extend tests in `apps/web/tests`:

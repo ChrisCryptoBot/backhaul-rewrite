@@ -5,7 +5,7 @@ describe("upload utils", () => {
   test("keeps valid PDFs when batch includes oversized files", () => {
     const files = [
       { name: "small.pdf", type: "application/pdf", size: 1024 },
-      { name: "large.pdf", type: "application/pdf", size: 11 * 1024 * 1024 },
+      { name: "large.pdf", type: "application/pdf", size: 26 * 1024 * 1024 },
       { name: "email.msg", type: "application/vnd.ms-outlook", size: 1000 }
     ];
     const result = splitUploadBatch(files);

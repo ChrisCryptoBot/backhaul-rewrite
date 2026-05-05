@@ -1,16 +1,36 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRegionAccess } from "@/lib/access";
 import { resolvePhase1RegionId } from "@/lib/scope";
 import { isAuthBypassed } from "@/lib/auth-mode";
 import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
 import { getRateConfirmationActivity } from "@/server/rate-confirmation-activity";
 import { isIsoDay, todayIsoInTimeZone } from "@/lib/board-date";
+import { policyAdapter } from "@/domain/policy/policy-adapter";
 
 const schema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  regionId: z.string().min(1).optional()
 });
+
+async function resolveActivityRegion(input: {
+  requestedRegionId: string | null | undefined;
+  bypassAuth: boolean;
+}): Promise<string> {
+  if (input.requestedRegionId && input.requestedRegionId.trim().length > 0) {
+    return input.requestedRegionId.trim();
+  }
+
+  if (input.bypassAuth) {
+    try {
+      return await resolvePhase1RegionId();
+    } catch {
+      return "dev-region";
+    }
+  }
+
+  return resolvePhase1RegionId();
+}
 
 export async function GET(request: Request) {
   try {
@@ -20,14 +40,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const actorUserId = userId ?? "dev-bypass-user";
-    const dateParam = new URL(request.url).searchParams.get("date");
-    const date = bypassAuth ? (isIsoDay(dateParam) ? dateParam : todayIsoInTimeZone()) : schema.parse({ date: dateParam }).date;
+    const searchParams = new URL(request.url).searchParams;
+    const dateParam = searchParams.get("date");
+    const regionParam = searchParams.get("regionId");
+    const date = bypassAuth
+      ? (isIsoDay(dateParam) ? dateParam : todayIsoInTimeZone())
+      : schema.parse({ date: dateParam, regionId: regionParam ?? undefined }).date;
 
     let regionId = "dev-region";
     try {
-      regionId = await resolvePhase1RegionId();
+      regionId = await resolveActivityRegion({ requestedRegionId: regionParam, bypassAuth });
       if (!bypassAuth) {
-        await requireRegionAccess(actorUserId, regionId);
+        const access = await policyAdapter.requireRegionAccess(actorUserId, regionId);
+        policyAdapter.assertPermission(access, { resource: "BOARD", action: "READ" });
       }
     } catch (error) {
       if (!bypassAuth) {

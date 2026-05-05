@@ -2,7 +2,6 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { requireRegionAccess } from "@/lib/access";
 import { resolvePhase1RegionId } from "@/lib/scope";
 import { isAuthBypassed } from "@/lib/auth-mode";
 import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-error";
@@ -12,6 +11,7 @@ import {
   getRateConfirmationForReview,
   rejectRateConfirmationReview
 } from "@/server/review";
+import { policyAdapter } from "@/domain/policy/policy-adapter";
 
 interface Params {
   params: { rateConfirmationId: string };
@@ -29,28 +29,37 @@ async function resolveRegionAndActor() {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   const actorUserId = userId ?? "dev-bypass-user";
-  let regionId = "dev-region";
-  try {
-    regionId = await resolvePhase1RegionId();
-    if (!bypassAuth) {
-      await requireRegionAccess(actorUserId, regionId);
-    }
-  } catch (error) {
-    if (!bypassAuth) {
-      throw error;
-    }
-  }
-  return { actorUserId, regionId };
+  return { actorUserId };
 }
 
-export async function GET(_request: Request, { params }: Params) {
+async function resolveRequestedReviewRegion(request: Request, bypassAuth: boolean): Promise<string> {
+  const requested = new URL(request.url).searchParams.get("regionId");
+  if (requested && requested.trim().length > 0) {
+    return requested.trim();
+  }
+  if (bypassAuth) {
+    try {
+      return await resolvePhase1RegionId();
+    } catch {
+      return "dev-region";
+    }
+  }
+  return resolvePhase1RegionId();
+}
+
+export async function GET(request: Request, { params }: Params) {
   try {
     const context = await resolveRegionAndActor();
     if ("error" in context) {
       return context.error;
     }
+    const regionId = await resolveRequestedReviewRegion(request, isAuthBypassed());
+    if (!isAuthBypassed()) {
+      const access = await policyAdapter.requireRegionAccess(context.actorUserId, regionId);
+      policyAdapter.assertPermission(access, { resource: "RATE_CONFIRMATION_REVIEW", action: "READ" });
+    }
     const payload = await getRateConfirmationForReview({
-      regionId: context.regionId,
+      regionId,
       rateConfirmationId: params.rateConfirmationId
     });
     if (!payload) {
@@ -71,18 +80,24 @@ export async function POST(request: Request, { params }: Params) {
     if ("error" in context) {
       return context.error;
     }
+    const bypassAuth = isAuthBypassed();
+    const regionId = await resolveRequestedReviewRegion(request, bypassAuth);
+    if (!bypassAuth) {
+      const access = await policyAdapter.requireRegionAccess(context.actorUserId, regionId);
+      policyAdapter.assertPermission(access, { resource: "RATE_CONFIRMATION_REVIEW", action: "REVIEW" });
+    }
     const body = actionSchema.parse(await request.json());
     if (body.action === "approve") {
       const payload = await approveRateConfirmationReview({
         actorId: context.actorUserId,
-        regionId: context.regionId,
+        regionId,
         rateConfirmationId: params.rateConfirmationId
       });
       return NextResponse.json(payload, { status: payload.alreadyExisted ? 200 : 201 });
     }
     const payload = await rejectRateConfirmationReview({
       actorId: context.actorUserId,
-      regionId: context.regionId,
+      regionId,
       rateConfirmationId: params.rateConfirmationId,
       reason: body.reason
     });

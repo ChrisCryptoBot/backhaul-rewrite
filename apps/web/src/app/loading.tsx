@@ -1,8 +1,15 @@
 export default function LoadingPage() {
   return (
-    <main>
-      <h1>Daily Load Board</h1>
-      <p>Loading board data...</p>
+    <main className="db-root db-fallback-main">
+      <section className="db-loading-shell" aria-live="polite" aria-busy="true">
+        <div className="db-loading-line db-skel">Daily Load Board</div>
+        <div className="db-loading-line db-loading-line-wide db-skel">Loading board data...</div>
+        <div className="db-loading-grid">
+          <div className="db-loading-card db-skel">Totals</div>
+          <div className="db-loading-card db-skel">Sections</div>
+          <div className="db-loading-card db-skel">Drop Bucket</div>
+        </div>
+      </section>
     </main>
   );
 }

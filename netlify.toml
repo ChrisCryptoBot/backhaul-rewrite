@@ -1,0 +1,6 @@
+[build]
+command = "npm --workspace @backhaul/web run build"
+publish = "apps/web/.next"
+
+[[plugins]]
+package = "@netlify/plugin-nextjs"

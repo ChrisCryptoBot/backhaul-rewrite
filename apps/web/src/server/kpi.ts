@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
+import { computeAllInRevenue } from "@/domain/semantics";
 
 export interface LoadMetricInput {
   lineHaulRate: Prisma.Decimal;
@@ -17,6 +18,7 @@ export interface LoadComputedMetrics {
   negotiationFloorRpm: Prisma.Decimal | null;
   emptyMilePct: Prisma.Decimal | null;
   fscAmount: Prisma.Decimal;
+  allInRevenue: Prisma.Decimal;
 }
 
 function ensureDecimal(value: Prisma.Decimal): Prisma.Decimal {
@@ -40,6 +42,10 @@ export function computeLoadMetrics(input: LoadMetricInput): LoadComputedMetrics 
   const emptyMilePct = safeDivideDecimal(emptyMiles, totalTripMiles);
   const fscAmount =
     input.fscApplies && input.fscRateUsed !== null ? input.fscRateUsed.mul(loadedMiles) : new Prisma.Decimal(0);
+  const allInRevenue = computeAllInRevenue({
+    lineHaulRate,
+    fscAmount
+  });
 
   return {
     totalTripMiles,
@@ -47,6 +53,7 @@ export function computeLoadMetrics(input: LoadMetricInput): LoadComputedMetrics 
     loadedRpm,
     negotiationFloorRpm,
     emptyMilePct,
-    fscAmount
+    fscAmount,
+    allInRevenue
   };
 }

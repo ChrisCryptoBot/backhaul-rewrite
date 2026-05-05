@@ -1,12 +1,15 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { isAuthBypassed } from "@/lib/auth-mode";
 
-const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)"]);
+/** Pages enforce Clerk in RSC; listing them here avoids edge-auth navigation flakes. */
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/dashboard(.*)",
+  "/review(.*)",
+  "/visual-regression(.*)"
+]);
 
 export default clerkMiddleware(async (auth, req) => {
-  if (isAuthBypassed()) {
-    return;
-  }
   if (!isPublicRoute(req)) {
     await auth.protect();
   }

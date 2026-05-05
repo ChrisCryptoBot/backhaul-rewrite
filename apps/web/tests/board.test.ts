@@ -155,11 +155,73 @@ describe("board server contract", () => {
 
     const { getBoardResponse } = await import("@/server/board");
     const response = await getBoardResponse({ regionId: "region-1", date: "2026-04-29" });
-    expect(response.sections).toHaveLength(2);
+    expect(response.sections).toHaveLength(4);
     expect(response.sections[0].type).toBe("adhoc");
     expect(response.sections[1].type).toBe("canceled");
     expect(response.dayTotals.loadCount).toBe(0);
     expect(response.dayTotals.emptyMilePct).toBeNull();
+  });
+
+  test("folds no-drop-lot loads into LTL drop-lot section when LTL lot exists", async () => {
+    const tx = {
+      dropLot: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "lot-ltl",
+            name: "LTL",
+            code: "LTL",
+            city: "Leesport",
+            state: "PA",
+            sortOrder: 1,
+            dailyCapacity: 2,
+            slipSeat: false,
+            dropHookRequired: false
+          }
+        ])
+      },
+      load: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "active-ltl-1",
+            status: "BOOKED",
+            dropLotId: null,
+            dropLot: null,
+            bookingDate: new Date("2026-04-29T02:00:00.000Z"),
+            createdAt: new Date("2026-04-29T02:00:00.000Z"),
+            threePlRefNumber: "R2",
+            routeId: null,
+            loadNumber: null,
+            pickupNumber: null,
+            shipperName: null,
+            pickupCity: null,
+            pickupState: null,
+            pickupWindow: null,
+            receiverName: null,
+            deliveryCity: null,
+            deliveryState: null,
+            deliveryWindow: null,
+            lineHaulRate: new Prisma.Decimal("500"),
+            loadedMiles: new Prisma.Decimal("100"),
+            puDeadheadMiles: new Prisma.Decimal("5"),
+            delDeadheadMiles: new Prisma.Decimal("5"),
+            totalTripMiles: new Prisma.Decimal("110"),
+            negotiableMiles: new Prisma.Decimal("105"),
+            loadedRpm: new Prisma.Decimal("5"),
+            negotiationFloorRpm: new Prisma.Decimal("4.76")
+          }
+        ])
+      }
+    };
+    runInRegionScope.mockImplementation(async (_regionId: string, callback: (trx: typeof tx) => Promise<unknown>) => callback(tx));
+
+    const { getBoardResponse } = await import("@/server/board");
+    const response = await getBoardResponse({ regionId: "region-1", date: "2026-04-29" });
+
+    expect(response.sections.some((section) => section.type === "adhoc")).toBe(false);
+    expect(response.sections[0].type).toBe("drop_lot");
+    expect(response.sections[0].dropLot?.name).toBe("LTL");
+    expect(response.sections[0].filledCount).toBe(1);
+    expect(response.sections[0].loads).toHaveLength(1);
   });
 
   test("uses America/New_York boundaries for date filtering", async () => {

@@ -9,9 +9,15 @@ const isAuthBypassed = vi.fn();
 const getRateConfirmationForReview = vi.fn();
 const approveRateConfirmationReview = vi.fn();
 const rejectRateConfirmationReview = vi.fn();
+const assertPermission = vi.fn();
 
 vi.mock("@clerk/nextjs/server", () => ({ auth }));
-vi.mock("@/lib/access", () => ({ requireRegionAccess }));
+vi.mock("@/domain/policy/policy-adapter", () => ({
+  policyAdapter: {
+    requireRegionAccess,
+    assertPermission
+  }
+}));
 vi.mock("@/lib/scope", () => ({ resolvePhase1RegionId }));
 vi.mock("@/lib/auth-mode", () => ({ isAuthBypassed }));
 vi.mock("@/server/review", () => ({
@@ -26,7 +32,9 @@ describe("GET/POST /api/review/[rateConfirmationId]", () => {
     isAuthBypassed.mockReturnValue(false);
     resolvePhase1RegionId.mockResolvedValue("region-1");
     requireRegionAccess.mockResolvedValue({ userId: "user-1", regionId: "region-1", role: "COORDINATOR" });
+    assertPermission.mockReturnValue(undefined);
     getRateConfirmationForReview.mockResolvedValue({
+      contractVersion: "v1",
       id: "rc-1",
       parseState: "EXTRACTED",
       reviewDecision: "APPROVED",

@@ -3,12 +3,18 @@ import { PolicyViolationError } from "@/lib/policy-error";
 
 const auth = vi.fn();
 const requireRegionAccess = vi.fn();
+const assertPermission = vi.fn();
 const resolvePhase1RegionId = vi.fn();
 const getLoadDetail = vi.fn();
 const isAuthBypassed = vi.fn();
 
 vi.mock("@clerk/nextjs/server", () => ({ auth }));
-vi.mock("@/lib/access", () => ({ requireRegionAccess }));
+vi.mock("@/domain/policy/policy-adapter", () => ({
+  policyAdapter: {
+    requireRegionAccess,
+    assertPermission
+  }
+}));
 vi.mock("@/lib/scope", () => ({ resolvePhase1RegionId }));
 vi.mock("@/server/board-detail", () => ({ getLoadDetail }));
 vi.mock("@/lib/auth-mode", () => ({ isAuthBypassed }));

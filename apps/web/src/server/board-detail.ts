@@ -8,6 +8,7 @@ export interface LoadDetailPayload {
   routeId: string | null;
   loadNumber: string | null;
   pickupNumber: string | null;
+  pickupNumbers: string[];
   shipperName: string | null;
   pickupCityState: string | null;
   pickupWindow: string | null;
@@ -31,6 +32,14 @@ export interface LoadDetailPayload {
   equipmentNeeds: string | null;
   mgStatus: string | null;
   tmwStatus: string | null;
+  mgStatusTask: string;
+  tmwStatusTask: string;
+  scaleBeforeTask: string;
+  scaleAfterTask: string;
+  coordinatorNotes: string | null;
+  attentionNote: string | null;
+  attentionSeverity: string;
+  driverType: string | null;
   podStatus: string | null;
   rateConfirmation: {
     id: string;
@@ -38,6 +47,18 @@ export interface LoadDetailPayload {
     parseState: string;
     parseConfidence: string | null;
   } | null;
+  legs: Array<{
+    id: string;
+    legIndex: number;
+    legType: string;
+    driverName: string | null;
+    startCity: string | null;
+    startState: string | null;
+    endCity: string | null;
+    endState: string | null;
+    legMiles: string | null;
+    notes: string | null;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,6 +70,7 @@ interface LoadDetailDbRow {
   routeId: string | null;
   loadNumber: string | null;
   pickupNumber: string | null;
+  pickupNumbers: string[];
   shipperName: string | null;
   pickupCity: string | null;
   pickupState: string | null;
@@ -73,6 +95,14 @@ interface LoadDetailDbRow {
   equipmentNeeds: string | null;
   mgStatus: string | null;
   tmwStatus: string | null;
+  mgStatusTask: string;
+  tmwStatusTask: string;
+  scaleBeforeTask: string;
+  scaleAfterTask: string;
+  coordinatorNotes: string | null;
+  attentionNote: string | null;
+  attentionSeverity: string;
+  driverType: string | null;
   podStatus: string | null;
   dropLot: { name: string } | null;
   broker: { name: string } | null;
@@ -82,6 +112,18 @@ interface LoadDetailDbRow {
     parseState: string;
     parseConfidence: { toString(): string } | null;
   } | null;
+  legs: Array<{
+    id: string;
+    legIndex: number;
+    legType: string;
+    driverName: string | null;
+    startCity: string | null;
+    startState: string | null;
+    endCity: string | null;
+    endState: string | null;
+    legMiles: { toString(): string } | null;
+    notes: string | null;
+  }>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -110,7 +152,62 @@ export async function getLoadDetail(input: {
         regionId: input.regionId,
         deletedAt: null
       },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        threePlRefNumber: true,
+        routeId: true,
+        loadNumber: true,
+        pickupNumber: true,
+        pickupNumbers: true,
+        shipperName: true,
+        pickupCity: true,
+        pickupState: true,
+        pickupWindow: true,
+        receiverName: true,
+        deliveryCity: true,
+        deliveryState: true,
+        deliveryWindow: true,
+        lineHaulRate: true,
+        loadedMiles: true,
+        puDeadheadMiles: true,
+        delDeadheadMiles: true,
+        totalTripMiles: true,
+        negotiableMiles: true,
+        loadedRpm: true,
+        negotiationFloorRpm: true,
+        emptyMilePct: true,
+        pickupDriverAssigned: true,
+        tractorTrailer1: true,
+        tractorTrailer2: true,
+        commodity: true,
+        equipmentNeeds: true,
+        mgStatus: true,
+        tmwStatus: true,
+        mgStatusTask: true,
+        tmwStatusTask: true,
+        scaleBeforeTask: true,
+        scaleAfterTask: true,
+        coordinatorNotes: true,
+        attentionNote: true,
+        attentionSeverity: true,
+        driverType: true,
+        podStatus: true,
+        legs: {
+          orderBy: { legIndex: "asc" },
+          select: {
+            id: true,
+            legIndex: true,
+            legType: true,
+            driverName: true,
+            startCity: true,
+            startState: true,
+            endCity: true,
+            endState: true,
+            legMiles: true,
+            notes: true
+          }
+        },
         dropLot: { select: { name: true } },
         broker: { select: { name: true } },
         rateConfirmation: {
@@ -120,7 +217,9 @@ export async function getLoadDetail(input: {
             parseState: true,
             parseConfidence: true
           }
-        }
+        },
+        createdAt: true,
+        updatedAt: true
       }
     })) as unknown as LoadDetailDbRow | null;
 
@@ -136,6 +235,7 @@ export async function getLoadDetail(input: {
       routeId: load.routeId,
       loadNumber: load.loadNumber,
       pickupNumber: load.pickupNumber,
+      pickupNumbers: load.pickupNumbers,
       shipperName: load.shipperName,
       pickupCityState: cityState(load.pickupCity, load.pickupState),
       pickupWindow: load.pickupWindow,
@@ -159,6 +259,14 @@ export async function getLoadDetail(input: {
       equipmentNeeds: load.equipmentNeeds,
       mgStatus: load.mgStatus,
       tmwStatus: load.tmwStatus,
+      mgStatusTask: load.mgStatusTask,
+      tmwStatusTask: load.tmwStatusTask,
+      scaleBeforeTask: load.scaleBeforeTask,
+      scaleAfterTask: load.scaleAfterTask,
+      coordinatorNotes: load.coordinatorNotes,
+      attentionNote: load.attentionNote,
+      attentionSeverity: load.attentionSeverity,
+      driverType: load.driverType,
       podStatus: load.podStatus,
       rateConfirmation: load.rateConfirmation
         ? {
@@ -168,6 +276,18 @@ export async function getLoadDetail(input: {
             parseConfidence: load.rateConfirmation.parseConfidence?.toString() ?? null
           }
         : null,
+      legs: load.legs.map((leg) => ({
+        id: leg.id,
+        legIndex: leg.legIndex,
+        legType: leg.legType,
+        driverName: leg.driverName,
+        startCity: leg.startCity,
+        startState: leg.startState,
+        endCity: leg.endCity,
+        endState: leg.endState,
+        legMiles: leg.legMiles?.toString() ?? null,
+        notes: leg.notes
+      })),
       createdAt: load.createdAt.toISOString(),
       updatedAt: load.updatedAt.toISOString()
     };
