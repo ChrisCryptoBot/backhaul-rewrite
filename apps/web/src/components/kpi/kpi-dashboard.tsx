@@ -252,6 +252,22 @@ function TrendPopup({ point }: { point: TrendSeriesPoint }) {
   );
 }
 
+const chartTooltipContentStyle: React.CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid #d1d5db",
+  borderRadius: 6,
+  color: "#111111"
+};
+
+const chartTooltipLabelStyle: React.CSSProperties = {
+  color: "#111111",
+  fontWeight: 700
+};
+
+const chartTooltipItemStyle: React.CSSProperties = {
+  color: "#111111"
+};
+
 export function KpiDashboard({ initialData }: KpiDashboardProps) {
   const [tab, setTab] = React.useState<TabId>("Lanes");
   const [expandedLane, setExpandedLane] = React.useState<string | null>(null);
@@ -1754,7 +1770,12 @@ export function KpiDashboard({ initialData }: KpiDashboardProps) {
                             <CartesianGrid stroke="var(--db-border-soft)" vertical={false} />
                             <XAxis dataKey="weekIso" tick={{ fontSize: 10 }} />
                             <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} width={40} />
-                            <Tooltip formatter={(v) => money(Number(v), { decimals: 0 })} />
+                            <Tooltip
+                              formatter={(v) => money(Number(v), { decimals: 0 })}
+                              contentStyle={chartTooltipContentStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                            />
                             <Bar dataKey="totalAllInRevenue" fill="var(--db-chart-rev)" radius={[4, 4, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
@@ -1768,7 +1789,12 @@ export function KpiDashboard({ initialData }: KpiDashboardProps) {
                             <CartesianGrid stroke="var(--db-border-soft)" vertical={false} />
                             <XAxis dataKey="weekIso" tick={{ fontSize: 10 }} />
                             <YAxis unit="%" width={40} />
-                            <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
+                            <Tooltip
+                              formatter={(v) => `${Number(v).toFixed(1)}%`}
+                              contentStyle={chartTooltipContentStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                            />
                             <Line type="monotone" dataKey="emptyMilePct" stroke="var(--db-chart-empty)" strokeWidth={2} dot={false} />
                           </LineChart>
                         </ResponsiveContainer>
@@ -1782,7 +1808,12 @@ export function KpiDashboard({ initialData }: KpiDashboardProps) {
                             <CartesianGrid stroke="var(--db-border-soft)" vertical={false} />
                             <XAxis dataKey="weekIso" tick={{ fontSize: 10 }} />
                             <YAxis width={40} />
-                            <Tooltip formatter={(v) => rpm(Number(v))} />
+                            <Tooltip
+                              formatter={(v) => rpm(Number(v))}
+                              contentStyle={chartTooltipContentStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                            />
                             <Line type="monotone" dataKey="mileMaxRpm" stroke="var(--db-chart-load)" strokeWidth={2} dot={false} />
                           </LineChart>
                         </ResponsiveContainer>
@@ -1796,7 +1827,12 @@ export function KpiDashboard({ initialData }: KpiDashboardProps) {
                             <CartesianGrid stroke="var(--db-border-soft)" vertical={false} />
                             <XAxis dataKey="weekIso" tick={{ fontSize: 10 }} />
                             <YAxis width={40} />
-                            <Tooltip formatter={(v) => int(Number(v))} />
+                            <Tooltip
+                              formatter={(v) => int(Number(v))}
+                              contentStyle={chartTooltipContentStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                            />
                             <Legend />
                             <Bar dataKey="pickupDeadhead" stackId="deadhead" fill="#f59e0b" />
                             <Bar dataKey="deliveryDeadhead" stackId="deadhead" fill="#ef4444" />
@@ -1813,7 +1849,12 @@ export function KpiDashboard({ initialData }: KpiDashboardProps) {
                             <CartesianGrid stroke="var(--db-border-soft)" vertical={false} />
                             <XAxis dataKey="weekIso" tick={{ fontSize: 10 }} />
                             <YAxis width={40} />
-                            <Tooltip formatter={(v) => money(Number(v), { decimals: 0 })} />
+                            <Tooltip
+                              formatter={(v) => money(Number(v), { decimals: 0 })}
+                              contentStyle={chartTooltipContentStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                            />
                             <Legend />
                             <Bar dataKey="baseRevenue" stackId="revsplit" fill="#2563eb" />
                             <Bar dataKey="fscRevenue" stackId="revsplit" fill="#22c55e" />
@@ -1831,7 +1872,11 @@ export function KpiDashboard({ initialData }: KpiDashboardProps) {
                             <XAxis dataKey="weekIso" tick={{ fontSize: 10 }} />
                             <YAxis yAxisId="events" width={32} />
                             <YAxis yAxisId="amount" orientation="right" width={48} />
-                            <Tooltip />
+                            <Tooltip
+                              contentStyle={chartTooltipContentStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                            />
                             <Legend />
                             <Bar yAxisId="events" dataKey="tonuEvents" fill="#ef4444" />
                             <Line yAxisId="amount" type="monotone" dataKey="tonuAmount" stroke="#f97316" strokeWidth={2} dot={false} />
