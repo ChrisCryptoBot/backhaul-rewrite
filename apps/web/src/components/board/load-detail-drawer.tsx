@@ -2,7 +2,8 @@
 
 import React from "react";
 import { CloseIcon } from "@/components/icons";
-import type { ViewLoadDetail } from "@/lib/ui/drawer-mappers";
+import type { ViewBoardLoadRow } from "@/lib/ui/board-mappers";
+import type { LoadDetailResponse, ViewLoadDetail } from "@/lib/ui/drawer-mappers";
 import { mapLoadDetailToView } from "@/lib/ui/drawer-mappers";
 import { money, miles, pct, rpm } from "@/lib/ui/formatters";
 import { StatusPill } from "./status-pill";
@@ -10,6 +11,7 @@ import { StatusPill } from "./status-pill";
 interface LoadDetailDrawerProps {
   loadId: string | null;
   regionId: string;
+  fallbackLoad?: ViewBoardLoadRow | null;
   onClose: () => void;
   onSetStatus?: (loadId: string, status: "BOOKED" | "CANCELED" | "FAILED") => Promise<void>;
   onUpdateFields?: (loadId: string, fields: any) => Promise<void>;
@@ -35,6 +37,81 @@ interface ApiErrorPayload {
   error?: string;
 }
 
+function buildFallbackDetail(load: ViewBoardLoadRow): ViewLoadDetail {
+  const nowIso = new Date().toISOString();
+  const puDh = load.puDh ?? 0;
+  const delDh = load.delDh ?? 0;
+  const totalMi = load.totalMi;
+  const emptyPctRatio = totalMi && totalMi > 0 ? (puDh + delDh) / totalMi : null;
+
+  const response: LoadDetailResponse = {
+    id: load.id,
+    status: load.status,
+    sectionCode: load.dropLotName ?? null,
+    threePlRefNumber: load.ref === "—" ? null : load.ref,
+    routeId: load.routeId,
+    loadNumber: load.loadNumber,
+    pickupNumber: load.pickupNumber,
+    pickupNumbers: load.pickupNumbers ?? [],
+    shipperName: load.shipper === "—" ? null : load.shipper,
+    pickupCityState: load.pickupCityState,
+    pickupWindow: load.pickupWindow,
+    receiverName: load.receiver === "—" ? null : load.receiver,
+    deliveryCityState: load.deliveryCityState,
+    deliveryWindow: load.deliveryWindow,
+    lineHaulRate: String(load.lineHaul ?? 0),
+    loadedMiles: String(load.loadedMi ?? 0),
+    puDeadheadMiles: String(load.puDh ?? 0),
+    delDeadheadMiles: String(load.delDh ?? 0),
+    totalTripMiles: load.totalMi === null ? null : String(load.totalMi),
+    negotiableMiles: load.negMi === null ? null : String(load.negMi),
+    loadedRpm: load.loadedRpm === null ? null : String(load.loadedRpm),
+    negotiationFloorRpm: load.floorRpm === null ? null : String(load.floorRpm),
+    emptyMilePct: emptyPctRatio === null ? null : String(emptyPctRatio),
+    brokerName: load.brokerName,
+    pickupDriverAssigned: load.pickupDriverAssigned,
+    tractorTrailer1: load.tractorTrailer1,
+    tractorTrailer2: load.tractorTrailer2,
+    commodity: load.commodity,
+    equipmentNeeds: load.equipmentNeeds,
+    mgStatus: null,
+    tmwStatus: null,
+    mgStatusTask: load.mgStatusTask,
+    tmwStatusTask: load.tmwStatusTask,
+    scaleBeforeTask: load.scaleBeforeTask,
+    scaleAfterTask: load.scaleAfterTask,
+    coordinatorNotes: load.coordinatorNotes,
+    attentionNote: load.lateCancelFailedNote,
+    attentionSeverity: load.attentionSeverity,
+    driverType: load.driverType,
+    podStatus: load.podStatus,
+    rateConfirmation: load.rateConfirmationId
+      ? {
+          id: load.rateConfirmationId,
+          sourceFileUrl: "#",
+          parseState: "EXTRACTED",
+          parseConfidence: null
+        }
+      : null,
+    legs: (load.legs ?? []).map((leg) => ({
+      id: leg.id,
+      legIndex: leg.legIndex,
+      legType: leg.legType,
+      driverName: leg.driverName,
+      startCity: leg.startCity,
+      startState: leg.startState,
+      endCity: leg.endCity,
+      endState: leg.endState,
+      legMiles: leg.legMiles === null ? null : String(leg.legMiles),
+      notes: leg.notes
+    })),
+    createdAt: nowIso,
+    updatedAt: nowIso
+  };
+
+  return mapLoadDetailToView(response);
+}
+
 function Timeline({ timeline }: Pick<ViewLoadDetail, "timeline">) {
   return (
     <div className="db-timeline">
@@ -51,6 +128,7 @@ function Timeline({ timeline }: Pick<ViewLoadDetail, "timeline">) {
 export function LoadDetailDrawer({
   loadId,
   regionId,
+  fallbackLoad = null,
   onClose,
   onSetStatus,
   onUpdateFields,
@@ -128,6 +206,11 @@ export function LoadDetailDrawer({
         if (cancelled) {
           return;
         }
+        if (fallbackLoad && fallbackLoad.id === loadId) {
+          setDetail(buildFallbackDetail(fallbackLoad));
+          setError(null);
+          return;
+        }
         setError(err instanceof Error ? err.message : "Unable to load details.");
       })
       .finally(() => {
@@ -139,7 +222,7 @@ export function LoadDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [loadId, regionId, reloadNonce]);
+  }, [fallbackLoad, loadId, regionId, reloadNonce]);
 
   React.useEffect(() => {
     if (!detail) {

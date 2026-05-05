@@ -827,6 +827,11 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
     window.location.assign(`/review/manual-entry?regionId=${encodeURIComponent(boardState.regionId)}`);
   }, [boardState.regionId]);
 
+  const selectedLoad = React.useMemo(
+    () => boardState.sections.flatMap((section) => section.loads).find((load) => load.id === selectedLoadId) ?? null,
+    [boardState.sections, selectedLoadId]
+  );
+
   const dismissFailedRecentItemWithUndo = React.useCallback((id: string) => {
     setDismissedFailedRecentIds((prev) => [...prev, id]);
     setUndoAction({ kind: "failed-recent", recentId: id });
@@ -1512,6 +1517,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
       <LoadDetailDrawer
         loadId={selectedLoadId}
         regionId={boardState.regionId}
+        fallbackLoad={selectedLoad}
         onClose={() => setSelectedLoadId(null)}
         onSetStatus={setLoadStatusFromDrawer}
         onUpdateFields={updateLoadFieldsFromDrawer}
